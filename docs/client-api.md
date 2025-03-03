@@ -2,7 +2,7 @@
 
 TODO: links
 
-This describes the API used by the client side of Argon. You should not need this if you are a mod developer looking to integrate Argon. Instead you might be looking for [the C++ api](https://example.com)
+This describes the API used by the client side of Argon. You should not need this if you are a mod developer looking to integrate Argon. Instead you might be looking for [the C++ api](https://example.com) and [the server-side api](./server-api.md  )
 
 The base URL for our instance is https://argon.dankmeme.dev
 
@@ -93,3 +93,10 @@ TODO
 
 # Limits
 
+Most, if not all of those limits can be configured, if you are hosting your own Argon instance. The limits on authtoken generation are:
+
+* Up to 3 different accounts in 1 hour from the same IP (only successful attempts count)
+* Up to 5 authtoken generation attempts in 1 hour from the same IP (only successful attempts count)
+* Up to 25 authtoken generation failures in 1 hour from the same IP
+
+Violating these limits may lead to a temporary or permanent block. Additionally, spamming messages to the bot on GD may get you blocked as well.
