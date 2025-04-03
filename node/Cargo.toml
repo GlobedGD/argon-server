@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 argon-shared = { path = "../shared" }
+base64 = "0.22.1"
+colored = "3.0.0"
+log = "0.4.27"
+parking_lot = "0.12.3"
+reqwest = { version = "0.12.15", default-features = false, features = ["http2", "rustls-tls"] }
+time = { version = "0.3.41", features = ["formatting"] }
+tokio = { version = "1.44.1", features = ["full"] }

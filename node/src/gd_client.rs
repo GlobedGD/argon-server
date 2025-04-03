@@ -1,0 +1,319 @@
+use std::{fmt::Display, str::FromStr, time::Duration};
+
+use crate::logger::*;
+use base64::{Engine as _, engine::general_purpose as b64e};
+use reqwest::Response;
+
+pub struct GDMessage {
+    id: i32,
+    title: String,
+    author_name: String,
+    author_id: i32,
+    author_user_id: i32,
+    age: Duration,
+}
+
+pub struct GDClient {
+    account_id: i32,
+    account_gjp: String,
+    base_url: String,
+    client: reqwest::Client,
+}
+
+pub enum GDClientError {
+    RequestFailed(reqwest::Error),
+    InvalidServerResponse(&'static str),
+    GenericAPIError,      // -1 by boomlings
+    UnknownAPIError(i32), // other boomlings error than -1 or -2
+    BlockedIP,            // CF error 1006, IP is blocked
+    BlockedProvider,      // CF error 1005, the entire provider is blocked
+    BlockedGeneric(i32),  // other CF error
+}
+
+impl GDClient {
+    pub fn new(account_id: i32, account_gjp: String, mut base_url: String) -> Self {
+        let invalid_certs = std::env::var("ARGON_NODE_ALLOW_INVALID_CERTS").is_ok_and(|x| x != "0");
+
+        let http_client = reqwest::ClientBuilder::new()
+            .use_rustls_tls()
+            .danger_accept_invalid_certs(invalid_certs)
+            .user_agent("")
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap();
+
+        while base_url.ends_with('/') {
+            base_url.pop();
+        }
+
+        Self {
+            client: http_client,
+            account_id,
+            account_gjp,
+            base_url,
+        }
+    }
+
+    pub async fn fetch_messages(&self) -> Result<Vec<GDMessage>, GDClientError> {
+        let result = self
+            .client
+            .post(format!("{}/getGJMessages20.php", self.base_url))
+            .form(&[
+                ("accountID", self.account_id.to_string()),
+                ("gjp2", self.account_gjp.clone()),
+                ("secret", "Wmfd2893gb7".to_owned()),
+                ("page", "0".to_owned()),
+            ])
+            .send()
+            .await;
+
+        let response = match result {
+            Ok(x) => x,
+            Err(err) => return Err(GDClientError::RequestFailed(err)),
+        };
+
+        let text = match Self::_handle_response(response).await {
+            Ok(x) => x,
+            Err(GDClientError::BlockedGeneric(-2)) => return Ok(vec![]), // -2 is ok, it just means no messages
+            Err(e) => return Err(e),
+        };
+
+        let mut response: &str = &text;
+        if let Some(sharp) = response.find('#') {
+            response = response.split_at(sharp).0;
+        }
+
+        let mut output = Vec::new();
+
+        for message_str in response.split('|') {
+            let message = message_str.parse::<GDMessage>();
+
+            match message {
+                Ok(m) => output.push(m),
+                Err(e) => {
+                    warn!("Failed to parse GD message: {e} (raw content: {message_str})");
+                }
+            }
+        }
+
+        Ok(output)
+    }
+
+    pub async fn delete_messages(&self, message_ids: &[i32]) -> Result<(), GDClientError> {
+        self.delete_messages_str(
+            &message_ids
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+        .await
+    }
+
+    pub async fn delete_messages_str(&self, message_str: &str) -> Result<(), GDClientError> {
+        let result = self
+            .client
+            .post(format!("{}/deleteGJMessages20.php", self.base_url))
+            .form(&[
+                ("accountID", self.account_id.to_string()),
+                ("gjp2", self.account_gjp.clone()),
+                ("secret", "Wmfd2893gb7".to_owned()),
+                ("messages", message_str.to_owned()),
+            ])
+            .send()
+            .await;
+
+        let response = match result {
+            Ok(x) => x,
+            Err(err) => return Err(GDClientError::RequestFailed(err)),
+        };
+
+        Self::_handle_response(response).await?;
+
+        Ok(())
+    }
+
+    async fn _handle_response(resp: Response) -> Result<String, GDClientError> {
+        let text = match resp.text().await {
+            Ok(x) => x,
+            Err(e) => {
+                return Err(GDClientError::InvalidServerResponse(
+                    "utf-8 decoding failed or response.text() failed for another reason",
+                ));
+            }
+        };
+
+        if text.starts_with("error code: ") {
+            let code = text
+                .strip_prefix("error code: ")
+                .unwrap()
+                .parse::<i32>()
+                .unwrap_or(0);
+
+            Err(match code {
+                1005 => GDClientError::BlockedProvider,
+                1006 => GDClientError::BlockedIP,
+                x => GDClientError::BlockedGeneric(x),
+            })
+        } else if text.starts_with("-")
+            && let Ok(num) = text.parse::<i32>()
+        {
+            Err(match num {
+                -1 => GDClientError::GenericAPIError,
+                x => GDClientError::UnknownAPIError(x),
+            })
+        } else {
+            Ok(text)
+        }
+    }
+}
+
+pub enum MessageParseError {
+    InvalidId,
+    IncompleteMessage,
+    InvalidTitle,
+    InvalidAge(AgeParseError),
+}
+
+impl Display for MessageParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidId => f.write_str("failed to parse message/account/user ID"),
+            Self::IncompleteMessage => {
+                f.write_str("failed to find important fields in the message string")
+            }
+            Self::InvalidTitle => f.write_str("failed to decode the message title"),
+            Self::InvalidAge(e) => write!(f, "failed to parse age string: {e}"),
+        }
+    }
+}
+
+impl FromStr for GDMessage {
+    type Err = MessageParseError;
+    fn from_str(s: &str) -> Result<Self, MessageParseError> {
+        let mut id = -1;
+        let mut title = String::new();
+        let mut author_name = String::new();
+        let mut author_id = -1;
+        let mut author_user_id = -1;
+        let mut age: Option<Duration> = None;
+
+        let mut is_key = true;
+        let mut cur_key = "";
+
+        for part in s.split(':') {
+            // this is very silly
+            if is_key {
+                cur_key = part;
+            } else {
+                match cur_key {
+                    "1" => {
+                        id = part
+                            .parse::<i32>()
+                            .map_err(|_| MessageParseError::InvalidId)?;
+                    }
+
+                    "2" => {
+                        author_id = part
+                            .parse::<i32>()
+                            .map_err(|_| MessageParseError::InvalidId)?;
+                    }
+
+                    "3" => {
+                        author_user_id = part
+                            .parse::<i32>()
+                            .map_err(|_| MessageParseError::InvalidId)?;
+                    }
+
+                    "4" => {
+                        title = b64e::URL_SAFE
+                            .decode(part)
+                            .map_err(|_| MessageParseError::InvalidTitle)
+                            .and_then(|v| {
+                                String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle)
+                            })?;
+                    }
+
+                    "6" => {
+                        author_name = part.to_owned();
+                    }
+
+                    "7" => {
+                        age =
+                            Some(rob_age_to_duration(part).map_err(MessageParseError::InvalidAge)?);
+                    }
+
+                    _ => {}
+                }
+            }
+
+            is_key = !is_key;
+        }
+
+        if id == -1
+            || author_name.is_empty()
+            || author_id == -1
+            || author_user_id == -1
+            || age.is_none()
+        {
+            Err(MessageParseError::IncompleteMessage)
+        } else {
+            Ok(GDMessage {
+                id,
+                title,
+                author_name,
+                author_id,
+                author_user_id,
+                age: age.unwrap(),
+            })
+        }
+    }
+}
+
+pub enum AgeParseError {
+    InvalidFormat,
+    InvalidNumber,
+    InvalidUnit,
+}
+
+impl Display for AgeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidFormat => f.write_str("invalid format"),
+            Self::InvalidNumber => f.write_str("invalid number"),
+            Self::InvalidUnit => f.write_str("invalid time unit"),
+        }
+    }
+}
+
+/// Converts a string in format like "3 seconds ago", "1 hour ago" to a duration
+pub fn rob_age_to_duration(mut age_str: &str) -> Result<Duration, AgeParseError> {
+    age_str = age_str.strip_suffix(" ago").unwrap_or(age_str);
+
+    let (num, unit) = age_str
+        .split_once(' ')
+        .ok_or(AgeParseError::InvalidFormat)?;
+    let num = num
+        .parse::<u64>()
+        .map_err(|_| AgeParseError::InvalidNumber)?;
+
+    // Now the funny part :)
+    // done like that for optimization
+    if unit.eq_ignore_ascii_case("second") || unit.eq_ignore_ascii_case("seconds") {
+        Ok(Duration::from_secs(num))
+    } else if unit.eq_ignore_ascii_case("minute") || unit.eq_ignore_ascii_case("minutes") {
+        Ok(Duration::from_mins(num))
+    } else if unit.eq_ignore_ascii_case("hour") || unit.eq_ignore_ascii_case("hours") {
+        Ok(Duration::from_hours(num))
+    } else if unit.eq_ignore_ascii_case("day") || unit.eq_ignore_ascii_case("days") {
+        Ok(Duration::from_days(num))
+    } else if unit.eq_ignore_ascii_case("week") || unit.eq_ignore_ascii_case("weeks") {
+        Ok(Duration::from_weeks(num))
+    } else if unit.eq_ignore_ascii_case("month") || unit.eq_ignore_ascii_case("months") {
+        Ok(Duration::from_days(num * 30))
+    } else if unit.eq_ignore_ascii_case("year") || unit.eq_ignore_ascii_case("years") {
+        Ok(Duration::from_days(num * 365))
+    } else {
+        Err(AgeParseError::InvalidUnit)
+    }
+}
