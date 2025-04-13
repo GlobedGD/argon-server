@@ -1,14 +1,20 @@
 [package]
-name = "node"
+name = "argon-node"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.97"
 argon-shared = { path = "../shared" }
 base64 = "0.22.1"
 colored = "3.0.0"
+itertools = "0.14.0"
 log = "0.4.27"
 parking_lot = "0.12.3"
-reqwest = { version = "0.12.15", default-features = false, features = ["http2", "rustls-tls"] }
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "http2",
+    "rustls-tls",
+] }
+serde_json = "1.0.140"
 time = { version = "0.3.41", features = ["formatting"] }
 tokio = { version = "1.44.1", features = ["full"] }

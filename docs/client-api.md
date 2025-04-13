@@ -42,9 +42,9 @@ Payload is a JSON object, with keys:
 
 The response is of the general response format, [see below](#response-format). The data object has the following properties:
 
-* `success` - boolean, represents whether the challenge has been now successfully verified
-* `authtoken` - string, if `success` is `true`, then this is the generated authtoken for the user
-* `pollAfter` - integer, if `success` is `false`, then this is the duration (in milliseconds) that the client should wait before polling the server again
+* `verified` - boolean, represents whether the challenge has been now successfully verified
+* `authtoken` - string, if `verified` is `true`, then this is the generated authtoken for the user
+* `pollAfter` - integer, if `verified` is `false`, then this is the duration (in milliseconds) that the client should wait before polling the server again
 
 # GET /v1/challenge/verifypoll
 
@@ -53,6 +53,8 @@ Check whether account verification is done.
 The response is identical to that of [/v1/challenge/verify](#post-v1challengeverify).
 
 # Response Format
+
+The status code of the response should always be 200 if successful, and 4xx / 5xx on failure (although that is not enforced)
 
 All response objects look like this:
 
@@ -95,8 +97,8 @@ TODO
 
 Most, if not all of those limits can be configured, if you are hosting your own Argon instance. The limits on authtoken generation are:
 
-* Up to 3 different accounts in 1 hour from the same IP (only successful attempts count)
-* Up to 5 authtoken generation attempts in 1 hour from the same IP (only successful attempts count)
+* Up to 5 different accounts in 1 hour from the same IP (only successful attempts count)
+* Up to 10 authtoken generation attempts in 1 hour from the same IP (only successful attempts count)
 * Up to 25 authtoken generation failures in 1 hour from the same IP
 
 Violating these limits may lead to a temporary or permanent block. Additionally, spamming messages to the bot on GD may get you blocked as well.

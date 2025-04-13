@@ -1,6 +1,11 @@
-use std::{fmt::Display, str::FromStr, time::Duration};
+use std::{
+    fmt::Display,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream},
+    str::FromStr,
+    time::Duration,
+};
 
-use crate::logger::*;
+use argon_shared::logger::*;
 use base64::{Engine as _, engine::general_purpose as b64e};
 use reqwest::Response;
 
@@ -59,10 +64,10 @@ impl GDClient {
             .client
             .post(format!("{}/getGJMessages20.php", self.base_url))
             .form(&[
-                ("accountID", self.account_id.to_string()),
-                ("gjp2", self.account_gjp.clone()),
-                ("secret", "Wmfd2893gb7".to_owned()),
-                ("page", "0".to_owned()),
+                ("accountID", self.account_id.to_string().as_str()),
+                ("gjp2", self.account_gjp.as_str()),
+                ("secret", "Wmfd2893gb7"),
+                ("page", "0"),
             ])
             .send()
             .await;
@@ -81,6 +86,10 @@ impl GDClient {
         let mut response: &str = &text;
         if let Some(sharp) = response.find('#') {
             response = response.split_at(sharp).0;
+            // data after # is formatted like number:number:number
+            // first number i'm not sure about, i think total amount of messages (sent + received)?,
+            // because it was slightly more than the actual amount of received messages i had
+            // second number is the offset (so page * pageSize), third number is either page size or the amount of entries in response (?)
         }
 
         let mut output = Vec::new();
@@ -100,14 +109,8 @@ impl GDClient {
     }
 
     pub async fn delete_messages(&self, message_ids: &[i32]) -> Result<(), GDClientError> {
-        self.delete_messages_str(
-            &message_ids
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join(","),
-        )
-        .await
+        self.delete_messages_str(&itertools::join(message_ids.iter(), ","))
+            .await
     }
 
     pub async fn delete_messages_str(&self, message_str: &str) -> Result<(), GDClientError> {
@@ -115,10 +118,10 @@ impl GDClient {
             .client
             .post(format!("{}/deleteGJMessages20.php", self.base_url))
             .form(&[
-                ("accountID", self.account_id.to_string()),
-                ("gjp2", self.account_gjp.clone()),
-                ("secret", "Wmfd2893gb7".to_owned()),
-                ("messages", message_str.to_owned()),
+                ("accountID", self.account_id.to_string().as_str()),
+                ("gjp2", self.account_gjp.as_str()),
+                ("secret", "Wmfd2893gb7"),
+                ("messages", message_str),
             ])
             .send()
             .await;

@@ -1,0 +1,18 @@
+[default]
+port = 4341
+cli_colors = true
+
+# These are not recommended to change unless you have a reason to
+address = "0.0.0.0"
+ip_header = false
+
+[default.limits]
+# Limits are set to very low by default to prevent DoS attacks, as most of those are unused anyway.
+form = "1KiB"
+data-form = "1KiB"
+file = "1KiB"
+json = "4KiB"
+msgpack = "1KiB"
+
+string = "8KiB"
+bytes = "8KiB"

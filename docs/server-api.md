@@ -6,13 +6,23 @@ Requests to these endpoints don't *have* to have a specific user-agent, although
 
 Some endpoints (namely telemetry) require authentication. To access those, you need a special developer token. If you are a mod developer and you want to access this data, reach out to me on Discord (`@dank_meme01`).
 
+# GET /v1/status
+
+Checks whether the server is up and running.
+
+The response is a JSON object, with keys:
+
+* `active` - boolean, whether the API is active and can be used
+* `total_nodes` - integer, amount of nodes currently registered
+* `active_nodes` - integer, amount of nodes that can process auth requests
+
 # GET /v1/validation/check
 
 Checks whether an authtoken is valid and matches the given account ID.
 
 Parameters are expeceted to be passed as a query string, aka `/v1/validation/check?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
 
-* `accountId` - integer, ID of user's Geometry Dash account
+* `account_id` - integer, ID of user's Geometry Dash account
 * `authtoken` - string, the authtoken supplied by the user
 
 If the status code is 200 (OK), the response is a JSON object, with keys:

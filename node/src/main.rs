@@ -1,8 +1,89 @@
 #![feature(let_chains, duration_constructors)]
 
 mod gd_client;
-mod logger;
+mod state;
+mod worker;
 
-fn main() {
-    println!("Hello, world!");
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+use argon_shared::{get_log_level, logger::*};
+use state::NodeState;
+
+fn abort_misconfig() -> ! {
+    error!("aborting launch due to misconfiguration.");
+    std::process::exit(1);
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // setup logger
+
+    let write_to_file = std::env::var("ARGON_NODE_NO_FILE_LOG")
+        .map(|p| p.parse::<i32>().unwrap())
+        .unwrap_or(0)
+        == 0;
+
+    log::set_logger(Logger::instance("argon_node", write_to_file)).unwrap();
+
+    if let Some(log_level) = get_log_level("ARGON_NODE_LOG_LEVEL") {
+        log::set_max_level(log_level);
+    } else {
+        log::set_max_level(LogLevelFilter::Warn);
+        error!("invalid value for the log level environment varaible");
+        warn!("hint: possible values are 'trace', 'debug', 'info', 'warn', 'error', and 'none'.");
+        abort_misconfig();
+    }
+
+    let mut args = std::env::args();
+    args.next().unwrap();
+
+    let server_addr = args.next().expect("central Argon server address not passed, should be the first argument after the executable");
+    let server_addr = match server_addr.parse::<SocketAddr>() {
+        Ok(x) => x,
+        Err(e) => {
+            error!("invalid server address provided: {e}");
+            warn!("hint: the address should be in format ip:port, for example 127.0.0.1:4340");
+            warn!("hint: IPv6 addresses are also allowed");
+            abort_misconfig();
+        }
+    };
+
+    let password = args.next().expect("server password not passed, should be the second argument after the executable and server address");
+
+    let state = Arc::new(NodeState::new());
+
+    match state.try_connect(server_addr, &password).await {
+        Ok(()) => {}
+        Err(e) => {
+            error!("connection failed: {e}");
+            warn!("hint: ensure the server address and password are correct");
+            abort_misconfig();
+        }
+    }
+
+    info!("Successfully connected to the central server, starting the worker loop");
+
+    // Run the node
+    tokio::select! {
+        _ = state.run_loop() => {}
+
+        _ = tokio::signal::ctrl_c() => {
+            // On interrupt, send a closure packet to the server, flush the log file, and exit.
+            if state.is_connection_open().await {
+                warn!("Received interrupt, attempting to cleanly close the connection and exit..");
+
+                match tokio::time::timeout(Duration::from_secs(5), state.close_connection()).await {
+                    Ok(Ok(())) => {},
+                    Ok(Err(err)) => error!("Error during closing the connection: {err}"),
+                    Err(_) => warn!("Timed out during closing the connection"),
+                }
+            } else {
+                warn!("Received interrupt, exiting.");
+            }
+
+            Logger::instance("argon_node", true).flush();
+        }
+    }
+
+    Ok(())
 }
