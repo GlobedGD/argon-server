@@ -14,6 +14,16 @@ fn abort_misconfig() -> ! {
     std::process::exit(1);
 }
 
+fn get_next_arg(args: &mut std::env::Args) -> String {
+    args.next().unwrap_or_else(|| {
+        error!("missing argument, aborting launch.");
+        let exe = std::env::current_exe().unwrap_or_default();
+        let exe_name = exe.file_name().unwrap_or_default().to_string_lossy();
+        warn!("usage: {exe_name} <server_address> <password>");
+        std::process::exit(1);
+    })
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // setup logger
@@ -37,18 +47,19 @@ async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args();
     args.next().unwrap();
 
-    let server_addr = args.next().expect("central Argon server address not passed, should be the first argument after the executable");
+    let server_addr = get_next_arg(&mut args);
     let server_addr = match server_addr.parse::<SocketAddr>() {
         Ok(x) => x,
         Err(e) => {
             error!("invalid server address provided: {e}");
+            warn!("hint: it should NOT be an HTTP address, but the node handler address");
             warn!("hint: the address should be in format ip:port, for example 127.0.0.1:4340");
             warn!("hint: IPv6 addresses are also allowed");
             abort_misconfig();
         }
     };
 
-    let password = args.next().expect("server password not passed, should be the second argument after the executable and server address");
+    let password = get_next_arg(&mut args);
 
     let state = Arc::new(NodeState::new());
 
@@ -57,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             error!("connection failed: {e}");
             warn!("hint: ensure the server address and password are correct");
+            warn!("hint: ensure you are putting address and port of the node handler, not the HTTP server");
             abort_misconfig();
         }
     }

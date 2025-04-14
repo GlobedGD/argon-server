@@ -1,7 +1,7 @@
 use std::{error::Error, fmt::Display};
 
 use crate::gd_client::GDClient;
-use argon_shared::{MessageCode, NodeConnection, ReceiveError, SendError, WorkerConfiguration};
+use argon_shared::{MessageCode, NodeConnection, ReceiveError, SendError, WorkerConfiguration, logger::*};
 use serde_json::json;
 
 pub struct Worker {

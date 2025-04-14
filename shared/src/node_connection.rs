@@ -23,6 +23,7 @@ use crate::{
     crypto::{CryptoBox, generate_keypair},
     data::MessageCode,
     parse_pubkey,
+    logger::*
 };
 
 // Send error
@@ -341,7 +342,13 @@ impl NodeConnection {
         let mut buf = [0u8; 4];
 
         loop {
-            if stream.peek(&mut buf).await? == 4 {
+            let b = stream.peek(&mut buf).await?;
+
+            if b == 0 {
+                return Err(ReceiveError::Closed);
+            }
+
+            if b == 4 {
                 break;
             }
         }
@@ -355,9 +362,16 @@ impl NodeConnection {
             return Err(ReceiveError::Closed);
         }
 
+        // for some reason, this literally does not work on windows, it just blocks forever
+        // we don't *really* need it anyway, but in case `receive_message` gets cancelled,
+        // the read_u32 call below may have already read some bytes, and it will leave this connection in an inconsistent state
+        // of course, the chances of this happening are super slim, but we add this poll just in case.
+        #[cfg(not(windows))]
+        self.poll_for_msg().await?;
+
         let mut stream = self.stream_read.lock().await;
 
-        let length = stream.read_u32().await? as usize; // block point
+        let length = stream.read_u32().await? as usize;
 
         let mut buffer = self.buffer.lock().await;
 

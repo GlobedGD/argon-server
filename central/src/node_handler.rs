@@ -296,8 +296,8 @@ impl NodeHandler {
     async fn run_node_receive_loop(&self, node: Arc<Node>) -> anyhow::Result<()> {
         while !node.terminating.load(Ordering::SeqCst) {
             tokio::select! {
-                _ = node.conn.poll_for_msg() => {
-                    let message = node.conn.receive_message().await?;
+                message = node.conn.receive_message() => {
+                    let message = message?;
 
                     match self.handle_node_message(&node, message).await {
                         Ok(()) => {},

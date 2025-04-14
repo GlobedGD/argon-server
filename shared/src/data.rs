@@ -1,7 +1,7 @@
 use int_enum::IntEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, IntEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, IntEnum)]
 #[repr(u16)]
 pub enum MessageCode {
     // Universal messages
