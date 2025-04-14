@@ -7,21 +7,40 @@ use std::{
 
 use argon_shared::logger::*;
 use base64::{Engine as _, engine::general_purpose as b64e};
+use parking_lot::Mutex;
 use reqwest::Response;
 
 pub struct GDMessage {
-    id: i32,
-    title: String,
-    author_name: String,
-    author_id: i32,
-    author_user_id: i32,
-    age: Duration,
+    pub id: i32,
+    pub title: String,
+    pub author_name: String,
+    pub author_id: i32,
+    pub author_user_id: i32,
+    pub age: Duration,
 }
 
-pub struct GDClient {
+struct ClientConfig {
     account_id: i32,
     account_gjp: String,
     base_url: String,
+}
+
+impl ClientConfig {
+    pub fn new(account_id: i32, account_gjp: String, mut base_url: String) -> Self {
+        while base_url.ends_with('/') {
+            base_url.pop();
+        }
+
+        Self {
+            account_id,
+            account_gjp,
+            base_url,
+        }
+    }
+}
+
+pub struct GDClient {
+    config: Mutex<ClientConfig>,
     client: reqwest::Client,
 }
 
@@ -35,8 +54,28 @@ pub enum GDClientError {
     BlockedGeneric(i32),  // other CF error
 }
 
+impl Display for GDClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RequestFailed(err) => write!(f, "request failed: {err}"),
+            Self::InvalidServerResponse(msg) => write!(f, "invalid server response: {msg}"),
+            Self::GenericAPIError => write!(f, "generic API error (likely invalid credentials?)"),
+            Self::UnknownAPIError(code) => write!(f, "API error: code {code}"),
+            Self::BlockedIP => write!(
+                f,
+                "error code 1006 returned, this IP address has been blocked"
+            ),
+            Self::BlockedProvider => write!(
+                f,
+                "error code 1005 returned, your internet provider (or VPS host) has been blocked"
+            ),
+            Self::BlockedGeneric(code) => write!(f, "error code {code} returned by Cloudflare"),
+        }
+    }
+}
+
 impl GDClient {
-    pub fn new(account_id: i32, account_gjp: String, mut base_url: String) -> Self {
+    pub fn new(account_id: i32, account_gjp: String, base_url: String) -> Self {
         let invalid_certs = std::env::var("ARGON_NODE_ALLOW_INVALID_CERTS").is_ok_and(|x| x != "0");
 
         let http_client = reqwest::ClientBuilder::new()
@@ -47,30 +86,34 @@ impl GDClient {
             .build()
             .unwrap();
 
-        while base_url.ends_with('/') {
-            base_url.pop();
-        }
+        let config = ClientConfig::new(account_id, account_gjp, base_url);
 
         Self {
             client: http_client,
-            account_id,
-            account_gjp,
-            base_url,
+            config: Mutex::new(config),
         }
     }
 
+    pub fn update_config(&self, account_id: i32, account_gjp: String, base_url: String) {
+        let mut config = self.config.lock();
+        *config = ClientConfig::new(account_id, account_gjp, base_url);
+    }
+
     pub async fn fetch_messages(&self) -> Result<Vec<GDMessage>, GDClientError> {
-        let result = self
-            .client
-            .post(format!("{}/getGJMessages20.php", self.base_url))
-            .form(&[
-                ("accountID", self.account_id.to_string().as_str()),
-                ("gjp2", self.account_gjp.as_str()),
-                ("secret", "Wmfd2893gb7"),
-                ("page", "0"),
-            ])
-            .send()
-            .await;
+        let req = {
+            let config = self.config.lock();
+
+            self.client
+                .post(format!("{}/getGJMessages20.php", config.base_url))
+                .form(&[
+                    ("accountID", config.account_id.to_string().as_str()),
+                    ("gjp2", config.account_gjp.as_str()),
+                    ("secret", "Wmfd2893gb7"),
+                    ("page", "0"),
+                ])
+        };
+
+        let result = req.send().await;
 
         let response = match result {
             Ok(x) => x,
@@ -114,17 +157,20 @@ impl GDClient {
     }
 
     pub async fn delete_messages_str(&self, message_str: &str) -> Result<(), GDClientError> {
-        let result = self
-            .client
-            .post(format!("{}/deleteGJMessages20.php", self.base_url))
-            .form(&[
-                ("accountID", self.account_id.to_string().as_str()),
-                ("gjp2", self.account_gjp.as_str()),
-                ("secret", "Wmfd2893gb7"),
-                ("messages", message_str),
-            ])
-            .send()
-            .await;
+        let req = {
+            let config = self.config.lock();
+
+            self.client
+                .post(format!("{}/deleteGJMessages20.php", config.base_url))
+                .form(&[
+                    ("accountID", config.account_id.to_string().as_str()),
+                    ("gjp2", config.account_gjp.as_str()),
+                    ("secret", "Wmfd2893gb7"),
+                    ("messages", message_str),
+                ])
+        };
+
+        let result = req.send().await;
 
         let response = match result {
             Ok(x) => x,
@@ -139,7 +185,7 @@ impl GDClient {
     async fn _handle_response(resp: Response) -> Result<String, GDClientError> {
         let text = match resp.text().await {
             Ok(x) => x,
-            Err(e) => {
+            Err(_e) => {
                 return Err(GDClientError::InvalidServerResponse(
                     "utf-8 decoding failed or response.text() failed for another reason",
                 ));

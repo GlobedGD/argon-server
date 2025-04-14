@@ -1,13 +1,17 @@
 use std::{error::Error, fmt::Display};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::gd_client::GDClient;
-use argon_shared::{MessageCode, NodeConnection, ReceiveError, SendError, WorkerConfiguration, logger::*};
+use argon_shared::{
+    MessageCode, NodeConnection, ReceiveError, SendError, WorkerConfiguration, logger::*,
+};
+use parking_lot::Mutex;
 use serde_json::json;
 
 pub struct Worker {
-    gd_client: GDClient,
-    central: Option<NodeConnection>,
-    config: WorkerConfiguration,
+    pub gd_client: AsyncMutex<GDClient>,
+    pub central: Option<NodeConnection>,
+    pub config: Mutex<WorkerConfiguration>,
 }
 
 #[derive(Debug)]
@@ -52,9 +56,9 @@ impl Worker {
         );
 
         Self {
-            gd_client,
+            gd_client: AsyncMutex::new(gd_client),
             central: Some(central),
-            config,
+            config: Mutex::new(config),
         }
     }
 
@@ -66,9 +70,9 @@ impl Worker {
         );
 
         Self {
-            gd_client,
+            gd_client: AsyncMutex::new(gd_client),
             central: None,
-            config,
+            config: Mutex::new(config),
         }
     }
 

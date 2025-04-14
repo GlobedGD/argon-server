@@ -9,8 +9,7 @@ use std::{
 
 use anyhow::bail;
 use argon_shared::{
-    KEY_SIZE, MessageCode, NodeConnection, ReceivedMessage, WorkerConfiguration, generate_keypair,
-    logger::*, parse_pubkey,
+    KEY_SIZE, MessageCode, NodeConnection, ReceivedMessage, WorkerConfiguration, generate_keypair, logger::*, parse_pubkey,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -156,10 +155,7 @@ impl NodeHandler {
         } else {
             let nodes = self.nodes.lock().await;
             state.node_count = nodes.len();
-            state.active_node_count = nodes
-                .iter()
-                .filter(|node| node.active.load(Ordering::SeqCst))
-                .count();
+            state.active_node_count = nodes.iter().filter(|node| node.active.load(Ordering::SeqCst)).count();
         }
     }
 
@@ -195,12 +191,7 @@ impl NodeHandler {
                 let this = state.node_handler().await;
 
                 // give them up to 10 seconds
-                match tokio::time::timeout(
-                    Duration::from_secs(10),
-                    this.handle_incoming_connection(socket, address),
-                )
-                .await
-                {
+                match tokio::time::timeout(Duration::from_secs(10), this.handle_incoming_connection(socket, address)).await {
                     Ok(Ok(())) => {}
 
                     Ok(Err(err)) => {
@@ -208,20 +199,14 @@ impl NodeHandler {
                     }
 
                     Err(_) => {
-                        warn!(
-                            "[{address}] timed out waiting for the node to perform the handshake and login"
-                        );
+                        warn!("[{address}] timed out waiting for the node to perform the handshake and login");
                     }
                 }
             });
         }
     }
 
-    async fn handle_incoming_connection(
-        &self,
-        socket: TcpStream,
-        addr: SocketAddr,
-    ) -> anyhow::Result<()> {
+    async fn handle_incoming_connection(&self, socket: TcpStream, addr: SocketAddr) -> anyhow::Result<()> {
         let conn = NodeConnection::new(socket);
 
         // wait for client to perform the handshake
@@ -235,10 +220,7 @@ impl NodeHandler {
 
         let password = msg.data.as_str().unwrap_or_default();
 
-        if !constant_time_compare(
-            &self.server_state.state_read().await.config.password,
-            password,
-        ) {
+        if !constant_time_compare(&self.server_state.state_read().await.config.password, password) {
             // send abort message
             conn.send_message(MessageCode::StartupAbort, &"auth failure".to_owned())
                 .await?;
@@ -254,11 +236,8 @@ impl NodeHandler {
             gjp: String::new(),
         });
 
-        conn.send_message(
-            MessageCode::StartupConfig,
-            &self.make_worker_config(&acc).await,
-        )
-        .await?;
+        conn.send_message(MessageCode::StartupConfig, &self.make_worker_config(&acc).await)
+            .await?;
 
         // add to the client list
         let node = Arc::new(Node::new(conn, addr, acc.id));
@@ -310,11 +289,7 @@ impl NodeHandler {
         Ok(())
     }
 
-    async fn handle_node_message(
-        &self,
-        node: &Node,
-        message: ReceivedMessage,
-    ) -> anyhow::Result<()> {
+    async fn handle_node_message(&self, node: &Node, message: ReceivedMessage) -> anyhow::Result<()> {
         match message.code {
             MessageCode::Close => {
                 info!("[{}] received close, terminating connection", node.addr);
@@ -331,11 +306,16 @@ impl NodeHandler {
 
             MessageCode::Pong => {}
 
+            MessageCode::NodeReportMessages => {
+                // TODO
+            }
+
+            MessageCode::NodeReportError => {
+                // TODO
+            }
+
             _ => {
-                warn!(
-                    "[{}] invalid message code received, not handling",
-                    node.addr
-                );
+                warn!("[{}] invalid message code received, not handling", node.addr);
             }
         }
 

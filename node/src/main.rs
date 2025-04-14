@@ -68,34 +68,64 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => {
             error!("connection failed: {e}");
             warn!("hint: ensure the server address and password are correct");
-            warn!("hint: ensure you are putting address and port of the node handler, not the HTTP server");
+            warn!(
+                "hint: ensure you are putting address and port of the node handler, not the HTTP server"
+            );
             abort_misconfig();
         }
     }
 
     info!("Successfully connected to the central server, starting the worker loop");
 
-    // Run the node
-    tokio::select! {
-        _ = state.run_loop() => {}
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(err) = state_clone.run_loop().await {
+            error!("Worker loop terminated due to error: {err}");
 
-        _ = tokio::signal::ctrl_c() => {
-            // On interrupt, send a closure packet to the server, flush the log file, and exit.
-            if state.is_connection_open().await {
-                warn!("Received interrupt, attempting to cleanly close the connection and exit..");
-
-                match tokio::time::timeout(Duration::from_secs(5), state.close_connection()).await {
-                    Ok(Ok(())) => {},
-                    Ok(Err(err)) => error!("Error during closing the connection: {err}"),
-                    Err(_) => warn!("Timed out during closing the connection"),
-                }
-            } else {
-                warn!("Received interrupt, exiting.");
+            match tokio::time::timeout(Duration::from_secs(5), state_clone.close_connection()).await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => error!("Error during closing the connection: {err}"),
+                Err(_) => warn!("Timed out during closing the connection"),
             }
 
             Logger::instance("argon_node", true).flush();
+
+            std::process::exit(1);
+        }
+    });
+
+    // Run the message handler
+
+    tokio::select! {
+        result = state.run_message_handler() => match result {
+            Ok(()) => {
+                // this likely only happens when the server sends a graceful close
+                info!("Message handler loop terminated");
+            },
+
+            Err(err) => {
+                error!("Message handler loop terminated: {err}");
+            }
+        },
+
+        _ = tokio::signal::ctrl_c() => {
+            warn!("Received interrupt, exiting");
         }
     }
+
+    // send a closure packet to the server, flush the log file, and exit.
+    if state.is_connection_open().await {
+        info!("Attempting to cleanly close the connection..");
+
+        match tokio::time::timeout(Duration::from_secs(5), state.close_connection()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => error!("Error during closing the connection: {err}"),
+            Err(_) => warn!("Timed out during closing the connection"),
+        }
+    }
+
+    Logger::instance("argon_node", true).flush();
 
     Ok(())
 }
