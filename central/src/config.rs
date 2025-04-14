@@ -16,14 +16,6 @@ fn default_accounts() -> Vec<GDAccountCreds> {
     Vec::new()
 }
 
-fn default_i32_0() -> i32 {
-    0
-}
-
-fn default_string() -> String {
-    String::new()
-}
-
 fn default_base_url() -> String {
     "https://www.boomlings.com/database".to_owned()
 }
@@ -37,11 +29,7 @@ fn default_handler_address() -> String {
 }
 
 fn default_password() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect()
+    rand::rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -77,11 +65,7 @@ impl ServerConfig {
     }
 
     pub fn save(&self, dest: &Path) -> anyhow::Result<()> {
-        let writer = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(dest)?;
+        let writer = OpenOptions::new().write(true).create(true).truncate(true).open(dest)?;
 
         let formatter = PrettyFormatter::with_indent(b"    ");
         let mut serializer = Serializer::with_formatter(writer, formatter);

@@ -7,9 +7,9 @@ use std::{
     time::Duration,
 };
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use argon_shared::{
-    KEY_SIZE, MessageCode, NodeConnection, ReceivedMessage, WorkerConfiguration, generate_keypair, logger::*, parse_pubkey,
+    MessageCode, NodeConnection, ReceivedMessage, WorkerAuthMessage, WorkerConfiguration, WorkerError, logger::*,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -46,7 +46,7 @@ impl Node {
         }
     }
 
-    pub fn set_active(&mut self, active: bool) {
+    pub fn set_active(&self, active: bool) {
         self.active.store(active, Ordering::SeqCst);
     }
 }
@@ -172,6 +172,7 @@ impl NodeHandler {
 
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
+            // watch over nodes and mark as inactive if they didnt process anything
         }
 
         Ok(())
@@ -307,11 +308,32 @@ impl NodeHandler {
             MessageCode::Pong => {}
 
             MessageCode::NodeReportMessages => {
-                // TODO
+                let messages = match serde_json::from_value::<Vec<WorkerAuthMessage>>(message.data) {
+                    Ok(x) => x,
+                    Err(err) => return Err(anyhow!("failed to parse messages: {err}")),
+                };
+
+                // mark node as active
+                node.set_active(true);
+
+                self.handle_auth_messages(messages).await;
             }
 
             MessageCode::NodeReportError => {
-                // TODO
+                let data = match serde_json::from_value::<WorkerError>(message.data) {
+                    Ok(x) => x,
+                    Err(err) => return Err(anyhow!("failed to parse worker error: {err}")),
+                };
+
+                warn!(
+                    "[{}] node reported error: {} (fail count: {})",
+                    node.addr, data.message, data.fail_count
+                );
+
+                if data.fail_count > 3 {
+                    // mark node as inactive
+                    node.set_active(false);
+                }
             }
 
             _ => {
@@ -323,12 +345,37 @@ impl NodeHandler {
     }
 
     async fn run_node(&self) -> anyhow::Result<()> {
-        // let worker = argon_node::Worker::new_standalone(self.make_worker_config().await);
+        let account = self.pick_account_for_bot().await;
+
+        let acc = account.unwrap_or_else(|| GDAccountCreds {
+            id: -1,
+            gjp: String::new(),
+        });
+
+        let worker = Arc::new(argon_node::Worker::new_standalone(self.make_worker_config(&acc).await));
+
+        let worker_clone = worker.clone();
+        tokio::spawn(async move {
+            match worker_clone.run_loop().await {
+                Ok(()) => unreachable!("worker loop should never terminate"),
+                Err(err) => {
+                    warn!("Standalone node worker loop terminated: {err}");
+                }
+            }
+        });
 
         loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // just receive messages from the node..
+            let messages = worker.receive_channel_messages().await?;
+            self.handle_auth_messages(messages).await;
         }
 
         Ok(())
+    }
+
+    /* handling stuff */
+
+    async fn handle_auth_messages(&self, messages: Vec<WorkerAuthMessage>) {
+        info!("i shall handle {} messages", messages.len());
     }
 }

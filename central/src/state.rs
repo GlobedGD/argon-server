@@ -24,7 +24,7 @@ struct AuthChallenge {
 pub struct ServerStateData {
     pub config_path: PathBuf,
     pub config: ServerConfig,
-    pub active_challenges: HashMap<IpAddr, AuthChallenge>,
+    active_challenges: HashMap<IpAddr, AuthChallenge>,
 
     // node handler stuff
     pub node_handler: Option<Arc<NodeHandler>>,

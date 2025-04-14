@@ -1,9 +1,4 @@
-use std::{
-    fmt::Display,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream},
-    str::FromStr,
-    time::Duration,
-};
+use std::{fmt::Display, str::FromStr, time::Duration};
 
 use argon_shared::logger::*;
 use base64::{Engine as _, engine::general_purpose as b64e};
@@ -61,10 +56,7 @@ impl Display for GDClientError {
             Self::InvalidServerResponse(msg) => write!(f, "invalid server response: {msg}"),
             Self::GenericAPIError => write!(f, "generic API error (likely invalid credentials?)"),
             Self::UnknownAPIError(code) => write!(f, "API error: code {code}"),
-            Self::BlockedIP => write!(
-                f,
-                "error code 1006 returned, this IP address has been blocked"
-            ),
+            Self::BlockedIP => write!(f, "error code 1006 returned, this IP address has been blocked"),
             Self::BlockedProvider => write!(
                 f,
                 "error code 1005 returned, your internet provider (or VPS host) has been blocked"
@@ -103,14 +95,12 @@ impl GDClient {
         let req = {
             let config = self.config.lock();
 
-            self.client
-                .post(format!("{}/getGJMessages20.php", config.base_url))
-                .form(&[
-                    ("accountID", config.account_id.to_string().as_str()),
-                    ("gjp2", config.account_gjp.as_str()),
-                    ("secret", "Wmfd2893gb7"),
-                    ("page", "0"),
-                ])
+            self.client.post(format!("{}/getGJMessages20.php", config.base_url)).form(&[
+                ("accountID", config.account_id.to_string().as_str()),
+                ("gjp2", config.account_gjp.as_str()),
+                ("secret", "Wmfd2893gb7"),
+                ("page", "0"),
+            ])
         };
 
         let result = req.send().await;
@@ -152,8 +142,7 @@ impl GDClient {
     }
 
     pub async fn delete_messages(&self, message_ids: &[i32]) -> Result<(), GDClientError> {
-        self.delete_messages_str(&itertools::join(message_ids.iter(), ","))
-            .await
+        self.delete_messages_str(&itertools::join(message_ids.iter(), ",")).await
     }
 
     pub async fn delete_messages_str(&self, message_str: &str) -> Result<(), GDClientError> {
@@ -193,11 +182,7 @@ impl GDClient {
         };
 
         if text.starts_with("error code: ") {
-            let code = text
-                .strip_prefix("error code: ")
-                .unwrap()
-                .parse::<i32>()
-                .unwrap_or(0);
+            let code = text.strip_prefix("error code: ").unwrap().parse::<i32>().unwrap_or(0);
 
             Err(match code {
                 1005 => GDClientError::BlockedProvider,
@@ -228,9 +213,7 @@ impl Display for MessageParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidId => f.write_str("failed to parse message/account/user ID"),
-            Self::IncompleteMessage => {
-                f.write_str("failed to find important fields in the message string")
-            }
+            Self::IncompleteMessage => f.write_str("failed to find important fields in the message string"),
             Self::InvalidTitle => f.write_str("failed to decode the message title"),
             Self::InvalidAge(e) => write!(f, "failed to parse age string: {e}"),
         }
@@ -257,30 +240,22 @@ impl FromStr for GDMessage {
             } else {
                 match cur_key {
                     "1" => {
-                        id = part
-                            .parse::<i32>()
-                            .map_err(|_| MessageParseError::InvalidId)?;
+                        id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
                     }
 
                     "2" => {
-                        author_id = part
-                            .parse::<i32>()
-                            .map_err(|_| MessageParseError::InvalidId)?;
+                        author_id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
                     }
 
                     "3" => {
-                        author_user_id = part
-                            .parse::<i32>()
-                            .map_err(|_| MessageParseError::InvalidId)?;
+                        author_user_id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
                     }
 
                     "4" => {
                         title = b64e::URL_SAFE
                             .decode(part)
                             .map_err(|_| MessageParseError::InvalidTitle)
-                            .and_then(|v| {
-                                String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle)
-                            })?;
+                            .and_then(|v| String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle))?;
                     }
 
                     "6" => {
@@ -288,8 +263,7 @@ impl FromStr for GDMessage {
                     }
 
                     "7" => {
-                        age =
-                            Some(rob_age_to_duration(part).map_err(MessageParseError::InvalidAge)?);
+                        age = Some(rob_age_to_duration(part).map_err(MessageParseError::InvalidAge)?);
                     }
 
                     _ => {}
@@ -299,26 +273,27 @@ impl FromStr for GDMessage {
             is_key = !is_key;
         }
 
-        if id == -1
-            || author_name.is_empty()
-            || author_id == -1
-            || author_user_id == -1
-            || age.is_none()
+        if id != -1
+            && !author_name.is_empty()
+            && author_id != -1
+            && author_user_id != -1
+            && let Some(age) = age
         {
-            Err(MessageParseError::IncompleteMessage)
-        } else {
             Ok(GDMessage {
                 id,
                 title,
                 author_name,
                 author_id,
                 author_user_id,
-                age: age.unwrap(),
+                age,
             })
+        } else {
+            Err(MessageParseError::IncompleteMessage)
         }
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 pub enum AgeParseError {
     InvalidFormat,
     InvalidNumber,
@@ -339,12 +314,8 @@ impl Display for AgeParseError {
 pub fn rob_age_to_duration(mut age_str: &str) -> Result<Duration, AgeParseError> {
     age_str = age_str.strip_suffix(" ago").unwrap_or(age_str);
 
-    let (num, unit) = age_str
-        .split_once(' ')
-        .ok_or(AgeParseError::InvalidFormat)?;
-    let num = num
-        .parse::<u64>()
-        .map_err(|_| AgeParseError::InvalidNumber)?;
+    let (num, unit) = age_str.split_once(' ').ok_or(AgeParseError::InvalidFormat)?;
+    let num = num.parse::<u64>().map_err(|_| AgeParseError::InvalidNumber)?;
 
     // Now the funny part :)
     // done like that for optimization

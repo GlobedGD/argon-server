@@ -45,6 +45,7 @@ impl<T: Serialize> GenericResponse<T> {
         })
     }
 
+    #[allow(unused)]
     pub fn make_error(error: String) -> Json<Self> {
         Json(Self {
             success: false,
@@ -87,7 +88,7 @@ pub struct ChallengeStartResponse {
 }
 
 #[post("/challenge/start", data = "<data>")]
-pub async fn challenge_start(
+async fn challenge_start(
     state: &State<ServerState>,
     data: Json<ChallengeStartData>,
     ip: IpAddr,
@@ -102,13 +103,7 @@ pub async fn challenge_start(
     // Currently, only message auth is supported
     let auth_method = "message";
 
-    let challenge = match state.create_challenge(
-        data.account_id,
-        data.user_id,
-        data.username.clone(),
-        user_ip,
-        true,
-    ) {
+    let challenge = match state.create_challenge(data.account_id, data.user_id, data.username.clone(), user_ip, true) {
         Ok(c) => c,
         Err(err) => return Err(ApiError::bad_request(err.to_string())),
     };
@@ -131,7 +126,7 @@ pub async fn challenge_start(
 }
 
 #[post("/challenge/restart", data = "<data>")]
-pub async fn challenge_restart(
+async fn challenge_restart(
     state: &State<ServerState>,
     data: Json<ChallengeStartData>,
     ip: IpAddr,
@@ -184,16 +179,12 @@ pub struct ValidationResponse {
 }
 
 #[get("/validation/check?<account_id>&<authtoken>")]
-pub async fn validation_check(
-    state: &State<ServerState>,
-    account_id: i32,
-    authtoken: &str,
-) -> Json<ValidationResponse> {
+pub async fn validation_check(state: &State<ServerState>, account_id: i32, authtoken: &str) -> Json<ValidationResponse> {
     let state = state.state_read().await;
 
     Json(ValidationResponse { valid: false })
 }
 
 pub fn build_routes() -> Vec<Route> {
-    routes![status]
+    routes![status, challenge_start, challenge_restart, validation_check]
 }
