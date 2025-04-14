@@ -163,7 +163,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             match state.config.reload_in_place(&cpath) {
                 Ok(()) => {
                     info!("Successfully reloaded the configuration");
-                    state.send_config_to_nodes().await;
+                    state.notify_config_change().await;
                 }
 
                 Err(err) => {

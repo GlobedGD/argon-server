@@ -86,11 +86,18 @@ impl ServerStateData {
         Ok(challenge_value)
     }
 
+    pub async fn pick_id_for_message_challenge(&self) -> Option<i32> {
+        let node_handler = self.node_handler.as_ref().unwrap();
+        node_handler.pick_challenge_account_id().await
+    }
+
     pub fn erase_challenge(&mut self, ip_address: IpAddr) {
         self.active_challenges.remove(&ip_address);
     }
 
-    pub async fn send_config_to_nodes(&self) {}
+    pub async fn notify_config_change(&self) {
+        // TODO: this should refresh node configuration, send new account id / gjp and suff
+    }
 }
 
 #[derive(Clone)]

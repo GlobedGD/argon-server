@@ -113,10 +113,20 @@ pub async fn challenge_start(
         Err(err) => return Err(ApiError::bad_request(err.to_string())),
     };
 
+    // TODO: this should check for active nodes too
+    let id = match state.pick_id_for_message_challenge().await {
+        Some(x) => x,
+        None => {
+            return Err(ApiError::internal_server_error(
+                "no node is currently available to process this auth request",
+            ));
+        }
+    };
+
     Ok(GenericResponse::make(ChallengeStartResponse {
         challenge,
         method: auth_method.to_owned(),
-        id: state.config.account_id,
+        id,
     }))
 }
 

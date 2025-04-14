@@ -12,6 +12,10 @@ fn default_false() -> bool {
     false
 }
 
+fn default_accounts() -> Vec<GDAccountCreds> {
+    Vec::new()
+}
+
 fn default_i32_0() -> i32 {
     0
 }
@@ -41,13 +45,17 @@ fn default_password() -> String {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct GDAccountCreds {
+    pub id: i32,
+    pub gjp: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
     #[serde(default = "default_false")]
     pub distributed_mode: bool,
-    #[serde(default = "default_i32_0")]
-    pub account_id: i32,
-    #[serde(default = "default_string")]
-    pub account_gjp: String,
+    #[serde(default = "default_accounts")]
+    pub accounts: Vec<GDAccountCreds>,
     #[serde(default = "default_base_url")]
     pub base_url: String,
     #[serde(default = "default_msg_check_interval")]

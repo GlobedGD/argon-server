@@ -17,7 +17,7 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::state::ServerState;
+use crate::{config::GDAccountCreds, state::ServerState};
 
 pub struct NodeHandler {
     server_state: ServerState,
@@ -33,15 +33,17 @@ pub struct Node {
     pub active: AtomicBool,
     pub addr: SocketAddr,
     pub terminating: AtomicBool,
+    pub used_account_id: i32,
 }
 
 impl Node {
-    pub fn new(conn: NodeConnection, addr: SocketAddr) -> Self {
+    pub fn new(conn: NodeConnection, addr: SocketAddr, used_account_id: i32) -> Self {
         Self {
             conn,
             active: AtomicBool::new(false),
             addr,
             terminating: AtomicBool::new(false),
+            used_account_id,
         }
     }
 
@@ -96,15 +98,53 @@ impl NodeHandler {
         }
     }
 
-    async fn make_worker_config(&self) -> WorkerConfiguration {
+    pub async fn pick_challenge_account_id(&self) -> Option<i32> {
+        let nodes = self.nodes.lock().await;
+
+        // TODO: smarter load balancing logic
+        for node in &*nodes {
+            if node.used_account_id != -1 {
+                return Some(node.used_account_id);
+            }
+        }
+
+        None
+    }
+
+    async fn make_worker_config(&self, acc: &GDAccountCreds) -> WorkerConfiguration {
         let state = self.server_state.state_read().await;
 
         WorkerConfiguration {
-            account_id: state.config.account_id,
-            account_gjp: state.config.account_gjp.clone(),
+            account_id: acc.id,
+            account_gjp: acc.gjp.clone(),
             base_url: state.config.base_url.clone(),
             msg_check_interval: state.config.msg_check_interval,
         }
+    }
+
+    async fn pick_account_for_bot(&self) -> Option<GDAccountCreds> {
+        let state = self.server_state.state_read().await;
+
+        // find the account that is used by the least number of nodes
+        let mut min_account: Option<&GDAccountCreds> = None;
+        let mut min_account_used = usize::MAX;
+
+        for account in &state.config.accounts {
+            let mut nodes_using = 0usize;
+
+            for node in &*self.nodes.lock().await {
+                if node.used_account_id == account.id {
+                    nodes_using += 1;
+                }
+            }
+
+            if nodes_using < min_account_used {
+                min_account_used = nodes_using;
+                min_account = Some(account);
+            }
+        }
+
+        min_account.cloned()
     }
 
     async fn update_node_counter(&self) {
@@ -206,12 +246,22 @@ impl NodeHandler {
             bail!("failed to authenticate node");
         }
 
-        // otherwise, send success
-        conn.send_message(MessageCode::StartupConfig, &self.make_worker_config().await)
-            .await?;
+        // otherwise, pick a gd account for them and send success
+        let account = self.pick_account_for_bot().await;
+
+        let acc = account.unwrap_or_else(|| GDAccountCreds {
+            id: -1,
+            gjp: String::new(),
+        });
+
+        conn.send_message(
+            MessageCode::StartupConfig,
+            &self.make_worker_config(&acc).await,
+        )
+        .await?;
 
         // add to the client list
-        let node = Arc::new(Node::new(conn, addr));
+        let node = Arc::new(Node::new(conn, addr, acc.id));
         self.nodes.lock().await.push(node.clone());
 
         info!("[{addr}] added new node!");
@@ -293,7 +343,7 @@ impl NodeHandler {
     }
 
     async fn run_node(&self) -> anyhow::Result<()> {
-        let worker = argon_node::Worker::new_standalone(self.make_worker_config().await);
+        // let worker = argon_node::Worker::new_standalone(self.make_worker_config().await);
 
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
