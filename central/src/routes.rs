@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api_error::{ApiError, ApiResult},
     routes_util::*,
-    state::ServerState,
+    state::{ChallengeValidationError, ServerState},
 };
 
 #[derive(Serialize)]
@@ -144,6 +144,8 @@ async fn challenge_restart(
 
 #[derive(Deserialize)]
 pub struct ChallengeVerifyData {
+    #[serde(rename = "accountId")]
+    account_id: i32,
     solution: String,
 }
 
@@ -158,18 +160,55 @@ pub struct ChallengeVerifyResponse {
     poll_after: Option<u32>,
 }
 
-// #[post("/challenge/verify", data = "<data>")]
-// pub async fn challenge_verify(
-//     state: &State<ServerState>,
-//     data: Json<ChallengeVerifyData>,
-//     ip: IpAddr,
-//     cfip: CloudflareIPGuard,
-// ) -> ClientApiResult<ChallengeVerifyResponse> {
-//     let mut state = state.state_write().await;
-//     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+#[post("/challenge/verify", data = "<data>")]
+pub async fn challenge_verify(
+    state: &State<ServerState>,
+    data: Json<ChallengeVerifyData>,
+    ip: IpAddr,
+    cfip: CloudflareIPGuard,
+) -> ClientApiResult<ChallengeVerifyResponse> {
+    let mut state = state.state_write().await;
+    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-//     state.
-// }
+    let strong =
+        match state.is_challenge_validated(user_ip, data.account_id, data.solution.parse::<i32>().unwrap_or_default()) {
+            Ok((true, strong)) => strong,
+
+            Ok((false, _)) => {
+                // tell them to poll again
+                return Ok(GenericResponse::make(ChallengeVerifyResponse {
+                    verified: false,
+                    authtoken: None,
+                    poll_after: Some(state.config.msg_check_interval / 2),
+                }));
+            }
+
+            Err(ChallengeValidationError::NoChallenge) => {
+                return Err(ApiError::bad_request("no auth challenge exists for this IP address"));
+            }
+
+            Err(ChallengeValidationError::WrongAccount) => {
+                return Err(ApiError::bad_request(
+                    "challenge was started for a different account, if you are using a VPN please try turning it off",
+                ));
+            }
+
+            Err(ChallengeValidationError::WrongSolution) => {
+                return Err(ApiError::bad_request("challenge solution is incorrect"));
+            }
+        };
+
+    // the challenge was verified! delete it and generate the authtoken
+    state.erase_challenge(user_ip);
+
+    // TODO
+
+    Ok(GenericResponse::make(ChallengeVerifyResponse {
+        verified: true,
+        authtoken: Some("wow".to_owned()),
+        poll_after: None,
+    }))
+}
 
 /* Validation */
 
@@ -186,5 +225,5 @@ pub async fn validation_check(state: &State<ServerState>, account_id: i32, autht
 }
 
 pub fn build_routes() -> Vec<Route> {
-    routes![status, challenge_start, challenge_restart, validation_check]
+    routes![status, challenge_start, challenge_restart, challenge_verify, validation_check]
 }

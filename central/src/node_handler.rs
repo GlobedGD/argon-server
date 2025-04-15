@@ -373,9 +373,13 @@ impl NodeHandler {
         Ok(())
     }
 
+    pub async fn notify_config_change(&self) {
+        // TODO
+    }
+
     /* handling stuff */
 
     async fn handle_auth_messages(&self, messages: Vec<WorkerAuthMessage>) {
-        info!("i shall handle {} messages", messages.len());
+        self.server_state.state_write().await.validate_challenges(messages).await;
     }
 }

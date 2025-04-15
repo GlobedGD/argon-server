@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::bail;
+use argon_shared::WorkerAuthMessage;
 use rand::Rng;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -19,6 +20,14 @@ struct AuthChallenge {
     pub challenge_value: i32,
     pub challenge_answer: i32,
     pub started_at: SystemTime,
+    pub validated: bool,
+    pub validated_strong: bool,
+}
+
+pub enum ChallengeValidationError {
+    NoChallenge,
+    WrongSolution,
+    WrongAccount,
 }
 
 pub struct ServerStateData {
@@ -70,7 +79,7 @@ impl ServerStateData {
         }
 
         let challenge_value = rand::rng().random::<i32>();
-        let answer = challenge_value ^ 0x5F3759DF;
+        let answer = Self::make_challenge_answer(challenge_value);
 
         let challenge = AuthChallenge {
             account_id,
@@ -79,11 +88,38 @@ impl ServerStateData {
             challenge_value,
             challenge_answer: answer,
             started_at: SystemTime::now(),
+            validated: false,
+            validated_strong: false,
         };
 
         self.active_challenges.insert(ip_address, challenge);
 
         Ok(challenge_value)
+    }
+
+    /// Returns whether the challenge has been validated, first bool is validated, second is strong validation.
+    /// Returns None if no challenge exists for this IP.
+    pub fn is_challenge_validated(
+        &self,
+        ip_address: IpAddr,
+        account_id: i32,
+        solution: i32,
+    ) -> Result<(bool, bool), ChallengeValidationError> {
+        let challenge = self.active_challenges.get(&ip_address);
+
+        if let Some(c) = challenge {
+            if c.account_id != account_id {
+                return Err(ChallengeValidationError::WrongAccount);
+            }
+
+            if c.challenge_answer != solution {
+                return Err(ChallengeValidationError::WrongSolution);
+            }
+
+            Ok((c.validated, c.validated_strong))
+        } else {
+            Err(ChallengeValidationError::NoChallenge)
+        }
     }
 
     pub async fn pick_id_for_message_challenge(&self) -> Option<i32> {
@@ -95,8 +131,37 @@ impl ServerStateData {
         self.active_challenges.remove(&ip_address);
     }
 
+    pub async fn validate_challenges(&mut self, messages: Vec<WorkerAuthMessage>) {
+        // this is pretty inefficient as it has n*m time complexity but what can we do :p
+
+        self.active_challenges.values_mut().for_each(|challenge| {
+            for message in &messages {
+                if message.account_id != challenge.account_id
+                    || message.user_id != challenge.user_id
+                    || message.challenge_answer != challenge.challenge_answer
+                {
+                    continue;
+                }
+
+                // we found a matching message
+                challenge.validated = true;
+
+                // validate username for strong integrity
+                if message.username.trim().eq_ignore_ascii_case(challenge.username.trim()) {
+                    challenge.validated_strong = true;
+                }
+
+                break;
+            }
+        });
+    }
+
+    pub fn make_challenge_answer(challenge: i32) -> i32 {
+        challenge ^ 0x5F3759DF
+    }
+
     pub async fn notify_config_change(&self) {
-        // TODO: this should refresh node configuration, send new account id / gjp and suff
+        self.node_handler.as_ref().unwrap().notify_config_change().await;
     }
 }
 

@@ -219,7 +219,10 @@ impl Worker {
         Ok(())
     }
 
-    fn process_auth_messages(&self, messages: Vec<GDMessage>) -> Vec<WorkerAuthMessage> {
+    fn process_auth_messages(&self, mut messages: Vec<GDMessage>) -> Vec<WorkerAuthMessage> {
+        // first sort to ensure we put the newest messages at the start
+        messages.sort_by(|a, b| a.age.cmp(&b.age));
+
         let mut auth_messages = Vec::new();
 
         let mut history = self.history.lock();

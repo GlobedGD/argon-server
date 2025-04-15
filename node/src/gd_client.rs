@@ -47,6 +47,7 @@ pub enum GDClientError {
     BlockedIP,            // CF error 1006, IP is blocked
     BlockedProvider,      // CF error 1005, the entire provider is blocked
     BlockedGeneric(i32),  // other CF error
+    NoAccountConfigured,
 }
 
 impl Display for GDClientError {
@@ -62,6 +63,7 @@ impl Display for GDClientError {
                 "error code 1005 returned, your internet provider (or VPS host) has been blocked"
             ),
             Self::BlockedGeneric(code) => write!(f, "error code {code} returned by Cloudflare"),
+            Self::NoAccountConfigured => write!(f, "account improperly configured, account ID was not a positive number"),
         }
     }
 }
@@ -94,6 +96,10 @@ impl GDClient {
     pub async fn fetch_messages(&self) -> Result<Vec<GDMessage>, GDClientError> {
         let req = {
             let config = self.config.lock();
+
+            if config.account_id <= 0 {
+                return Err(GDClientError::NoAccountConfigured);
+            }
 
             self.client.post(format!("{}/getGJMessages20.php", config.base_url)).form(&[
                 ("accountID", config.account_id.to_string().as_str()),

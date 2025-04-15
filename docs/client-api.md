@@ -38,6 +38,7 @@ Submit the solution to the verification challenge and request the Argon server t
 
 Payload is a JSON object, with keys:
 
+* `accountId` - integer, account ID of the user
 * `solution` - string, solution to the authentication challenge
 
 The response is of the general response format, [see below](#response-format). The data object has the following properties:
