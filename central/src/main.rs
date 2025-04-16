@@ -26,6 +26,7 @@ fn abort_misconfig() -> ! {
     error!("aborting launch due to misconfiguration.");
     std::process::exit(1);
 }
+
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // setup logger
@@ -112,6 +113,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+
+    // validate secret key
+
+    let mut tmp_buf = [0u8; 32];
+    if config.secret_key.len() != 64 || hex::decode_to_slice(&config.secret_key, &mut tmp_buf).is_err() {
+        error!("failed to decode the secret key in the config file");
+        warn!("hint: the key should be a hex-encoded 32-byte key");
+        warn!("hint: one can be generated using `openssl rand -hex 32`");
+        abort_misconfig();
+    }
 
     // create state
 

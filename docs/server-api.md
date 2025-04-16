@@ -21,6 +21,8 @@ The response is a JSON object, with keys:
 
 Checks whether an authtoken is valid and matches the given account ID.
 
+**Note: if you also want to validate/retrieve the user's account name without making additional requests to the GD server, you can use the [check_strong](#get-v1validationcheck_strong) endpoint!**
+
 Parameters are expeceted to be passed as a query string, aka `/v1/validation/check?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
 
 * `account_id` - integer, ID of user's Geometry Dash account
@@ -28,4 +30,27 @@ Parameters are expeceted to be passed as a query string, aka `/v1/validation/che
 
 If the status code is 200 (OK), the response is a JSON object, with keys:
 
-* `valid` - boolean
+* `valid` - boolean, whether this token is valid and matches the supplied account ID
+* `cause` - string, **only present if `valid` is `false`**, describes why exactly the token validation failed
+
+# GET /v1/validation/check_strong
+
+Checks whether an authtoken is valid and matches the given account ID, user ID and username.
+
+Parameters are expeceted to be passed as a query string, aka `/v1/validation/check?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
+
+* `account_id` - integer, ID of user's Geometry Dash account
+* `user_id` - integer, user ID of user's Geometry Dash account
+* `username` - string, the username of the account
+* `authtoken` - string, the authtoken supplied by the user
+
+If the status code is 200 (OK), the response is a JSON object, with keys:
+
+* `valid` - boolean, whether this token is valid and matches all the fields supplied
+* `valid_weak` - boolean, whether this token is valid and matches **at least** the supplied account ID
+* `cause` - string, **only present if `valid` and `valid_weak` are `false`**, describes why exactly the token validation failed
+* `cause_weak` - string, **only present is `valid` is `false` but `valid_weak` is `true`**, describes why exactly strong validation failed
+
+## Notes
+
+This endpoint is useful for

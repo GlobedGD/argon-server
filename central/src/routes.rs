@@ -213,13 +213,14 @@ pub async fn challenge_verify(
     };
 
     // the challenge was verified! delete it and generate the authtoken
-    state.erase_challenge(user_ip);
+    let challenge = state.erase_challenge(user_ip);
+    assert!(challenge.is_some(), "challenge should exist after being verified");
 
-    // TODO
+    let token = state.generate_authtoken(&challenge.unwrap());
 
     Ok(GenericResponse::make(ChallengeVerifyResponse {
         verified: true,
-        authtoken: Some("wow".to_owned()),
+        authtoken: Some(token),
         poll_after: None,
     }))
 }
@@ -229,6 +230,18 @@ pub async fn challenge_verify(
 #[derive(Serialize)]
 pub struct ValidationResponse {
     pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct StrongValidationResponse {
+    pub valid: bool,
+    pub valid_weak: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause_weak: Option<String>,
 }
 
 #[get("/validation/check?<account_id>&<authtoken>")]
@@ -239,7 +252,43 @@ pub async fn validation_check(
 ) -> Json<ValidationResponse> {
     let state = state.state_read().await;
 
-    Json(ValidationResponse { valid: false })
+    let result = state.validate_authtoken(authtoken);
+
+    match result {
+        Ok(data) if data.account_id == account_id => Json(ValidationResponse {
+            valid: true,
+            cause: None,
+        }),
+
+        Ok(data) => Json(ValidationResponse {
+            valid: false,
+            cause: Some(format!(
+                "token was not generated for this account ({}, but expected {})",
+                data.account_id, account_id
+            )),
+        }),
+
+        Err(err) => Json(ValidationResponse {
+            valid: false,
+            cause: Some(err.to_string()),
+        }),
+    }
+}
+
+#[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
+pub async fn validation_check_strong(
+    state: &State<ServerState>,
+    account_id: i32,
+    user_id: i32,
+    username: &str,
+    authtoken: &str,
+) -> Json<StrongValidationResponse> {
+    Json(StrongValidationResponse {
+        valid: false,
+        valid_weak: false,
+        cause: None,
+        cause_weak: None,
+    })
 }
 
 pub fn build_routes() -> Vec<Route> {
@@ -248,6 +297,7 @@ pub fn build_routes() -> Vec<Route> {
         challenge_start,
         challenge_restart,
         challenge_verify,
-        validation_check
+        validation_check,
+        validation_check_strong
     ]
 }
