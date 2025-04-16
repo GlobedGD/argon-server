@@ -26,6 +26,7 @@ pub struct AuthChallenge {
     pub challenge_value: i32,
     pub challenge_answer: i32,
     pub started_at: SystemTime,
+    pub force_strong: bool,
     pub validated: bool,
     pub validated_strong: bool,
 }
@@ -122,6 +123,7 @@ impl ServerStateData {
         user_id: i32,
         account_name: String,
         ip_address: IpAddr,
+        force_strong: bool,
         return_existing: bool,
     ) -> anyhow::Result<i32> {
         // check if a challenge already exists for this ip and it has not expired
@@ -150,6 +152,7 @@ impl ServerStateData {
             challenge_value,
             challenge_answer: answer,
             started_at: SystemTime::now(),
+            force_strong,
             validated: false,
             validated_strong: false,
         };
@@ -160,7 +163,7 @@ impl ServerStateData {
     }
 
     /// Returns whether the challenge has been validated, first bool is validated, second is strong validation.
-    /// Returns None if no challenge exists for this IP.
+    /// Returns an error if no challenge exists for this IP, or other errors have occurred.
     pub fn is_challenge_validated(
         &self,
         ip_address: IpAddr,
@@ -206,6 +209,7 @@ impl ServerStateData {
                 }
 
                 // we found a matching message
+
                 challenge.validated = true;
                 challenge.actual_username = message.username.clone();
 

@@ -17,6 +17,7 @@ Payload is a JSON object, with keys:
 * `accountId` - integer, ID of the Geometry Dash account
 * `userId` - integer, user ID of the Geometry Dash account
 * `username` - string, username of the Geometry Dash account
+* `forceStrong` - boolean, whether to require the username to match exactly
 * `reqMod` - string, ID of the mod that requested the authtoken, optional
 * `preferred` - string, preferred authentication method. See the [Authentication methods](#authentication-methods) section for more information.
 

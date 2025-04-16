@@ -61,6 +61,10 @@ pub type ClientApiResult<T> = ApiResult<Json<GenericResponse<T>>>;
 
 /* Challenges */
 
+fn default_false() -> bool {
+    false
+}
+
 fn default_empty_string() -> String {
     String::new()
 }
@@ -76,6 +80,8 @@ struct ChallengeStartData {
     #[serde(rename = "userId")]
     pub user_id: i32,
     pub username: String,
+    #[serde(rename = "forceStrong", default = "default_false")]
+    pub force_strong: bool,
     #[serde(rename = "reqMod", default = "default_empty_string")]
     pub req_mod: String,
     #[serde(default = "default_preferred_auth_method")]
@@ -111,6 +117,7 @@ async fn challenge_start(
         data.user_id,
         data.username.clone(),
         user_ip,
+        data.force_strong,
         true,
     ) {
         Ok(c) => c,
@@ -179,7 +186,7 @@ pub async fn challenge_verify(
     let mut state = state.state_write().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    let _strong = match state.is_challenge_validated(
+    let strong = match state.is_challenge_validated(
         user_ip,
         data.account_id,
         data.solution.parse::<i32>().unwrap_or_default(),
@@ -203,7 +210,7 @@ pub async fn challenge_verify(
 
         Err(ChallengeValidationError::WrongAccount) => {
             return Err(ApiError::bad_request(
-                "challenge was started for a different account, if you are using a VPN please try turning it off",
+                "challenge was started for a different account, if you are using a VPN please turn it off of try again in a minute",
             ));
         }
 
@@ -216,7 +223,16 @@ pub async fn challenge_verify(
     let challenge = state.erase_challenge(user_ip);
     assert!(challenge.is_some(), "challenge should exist after being verified");
 
-    let token = state.generate_authtoken(&challenge.unwrap());
+    let challenge = challenge.unwrap();
+
+    // if we wanted to force strong integrity but failed, return an error
+    if challenge.force_strong && !strong {
+        return Err(ApiError::bad_request(
+            "username validation failed, please try to refresh login in GD account settings",
+        ));
+    }
+
+    let token = state.generate_authtoken(&challenge);
 
     Ok(GenericResponse::make(ChallengeVerifyResponse {
         verified: true,
@@ -279,8 +295,8 @@ pub async fn validation_check(
 pub async fn validation_check_strong(
     state: &State<ServerState>,
     account_id: i32,
-    user_id: i32,
-    username: &str,
+    user_id: Option<i32>,
+    username: Option<&str>,
     authtoken: &str,
 ) -> Json<StrongValidationResponse> {
     let state = state.state_read().await;
@@ -308,12 +324,16 @@ pub async fn validation_check_strong(
                     "token was not generated for this account (account ID {}, but expected {})",
                     data.account_id, account_id
                 )))
-            } else if user_id != data.user_id {
+            } else if user_id.is_some_and(|x| x != data.user_id) {
                 Json(_fail(format!(
                     "token was not generated for this account (user ID {}, but expected {})",
                     data.account_id, account_id
                 )))
-            } else if !username.trim().eq_ignore_ascii_case(data.username.trim()) {
+            } else if !username
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case(data.username.trim())
+            {
                 Json(_fail_strong())
             } else {
                 Json(StrongValidationResponse {
