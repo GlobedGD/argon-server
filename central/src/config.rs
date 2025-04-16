@@ -3,6 +3,7 @@ use std::{
     path::Path,
 };
 
+use argon_shared::generate_keypair;
 use json_comments::StripComments;
 use rand::{Rng, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
@@ -29,7 +30,15 @@ fn default_handler_address() -> String {
 }
 
 fn default_password() -> String {
-    rand::rng().sample_iter(&Alphanumeric).take(32).map(char::from).collect()
+    rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
+fn default_secret_key() -> String {
+    hex::encode(generate_keypair().0.to_bytes())
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,6 +61,8 @@ pub struct ServerConfig {
     pub handler_address: String,
     #[serde(default = "default_password")]
     pub password: String,
+    #[serde(default = "default_secret_key")]
+    pub secret_key: String,
     #[serde(default = "default_false")]
     pub cloudflare_protection: bool,
 }
@@ -65,7 +76,11 @@ impl ServerConfig {
     }
 
     pub fn save(&self, dest: &Path) -> anyhow::Result<()> {
-        let writer = OpenOptions::new().write(true).create(true).truncate(true).open(dest)?;
+        let writer = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(dest)?;
 
         let formatter = PrettyFormatter::with_indent(b"    ");
         let mut serializer = Serializer::with_formatter(writer, formatter);

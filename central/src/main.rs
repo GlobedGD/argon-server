@@ -56,23 +56,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         || !rocket_toml.parent().is_some_and(Path::exists)
     {
         error!("invalid value for ROCKET_CONFIG");
-        warn!(
-            "hint: the filename must be 'Rocket.toml' and the parent folder must exist on the disk"
-        );
+        warn!("hint: the filename must be 'Rocket.toml' and the parent folder must exist on the disk");
         abort_misconfig();
     }
 
     if !rocket_toml.exists() {
         info!("Creating a template Rocket.toml file");
         let mut file = tokio::fs::File::create(rocket_toml).await?;
-        file.write_all(include_bytes!("Rocket.toml.template"))
-            .await?;
+        file.write_all(include_bytes!("Rocket.toml.template")).await?;
     }
 
     // config file
 
-    let mut config_path = std::env::var("ARGON_CONFIG_PATH")
-        .map_or_else(|_| std::env::current_dir().unwrap(), PathBuf::from);
+    let mut config_path =
+        std::env::var("ARGON_CONFIG_PATH").map_or_else(|_| std::env::current_dir().unwrap(), PathBuf::from);
 
     if config_path.is_dir() {
         config_path = config_path.join("config.json");
@@ -104,9 +101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(x) => Some(x),
             Err(err) => {
                 error!("invalid address passed as the handler address: {err}");
-                warn!(
-                    "hint: this is the listen address of the TCP socket that manages argon nodes"
-                );
+                warn!("hint: this is the listen address of the TCP socket that manages argon nodes");
                 warn!("hint: it should be in form ip:port, for example 0.0.0.0:4340");
                 warn!(
                     "hint: this error happens because distributed mode is on, for simpler setup you can turn it off"
@@ -148,8 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // config file watcher
 
     let (mut debouncer, mut file_events) =
-        AsyncDebouncer::new_with_channel(Duration::from_secs(1), Some(Duration::from_secs(1)))
-            .await?;
+        AsyncDebouncer::new_with_channel(Duration::from_secs(1), Some(Duration::from_secs(1))).await?;
 
     debouncer
         .watcher()
@@ -164,6 +158,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Ok(()) => {
                     info!("Successfully reloaded the configuration");
                     state.notify_config_change().await;
+
+                    // notify node handler about config change in another task
+                    let nh = state.node_handler.clone().unwrap();
+                    tokio::spawn(async move {
+                        nh.notify_config_change().await;
+                    });
                 }
 
                 Err(err) => {

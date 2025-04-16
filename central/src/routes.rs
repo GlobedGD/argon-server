@@ -14,6 +14,7 @@ pub struct StatusResponse {
     pub active: bool,
     pub total_nodes: usize,
     pub active_nodes: usize,
+    pub ident: String,
 }
 
 #[get("/status")]
@@ -24,6 +25,7 @@ pub async fn status(state: &State<ServerState>) -> Json<StatusResponse> {
         total_nodes: state.node_count,
         active_nodes: state.active_node_count,
         active: state.active_node_count > 0,
+        ident: state.server_ident.clone(),
     })
 }
 
@@ -82,9 +84,10 @@ struct ChallengeStartData {
 
 #[derive(Serialize)]
 pub struct ChallengeStartResponse {
-    pub method: String,
+    pub method: &'static str,
     pub id: i32,
     pub challenge: i32,
+    pub ident: String,
 }
 
 #[post("/challenge/start", data = "<data>")]
@@ -103,12 +106,17 @@ async fn challenge_start(
     // Currently, only message auth is supported
     let auth_method = "message";
 
-    let challenge = match state.create_challenge(data.account_id, data.user_id, data.username.clone(), user_ip, true) {
+    let challenge = match state.create_challenge(
+        data.account_id,
+        data.user_id,
+        data.username.clone(),
+        user_ip,
+        true,
+    ) {
         Ok(c) => c,
         Err(err) => return Err(ApiError::bad_request(err.to_string())),
     };
 
-    // TODO: this should check for active nodes too
     let id = match state.pick_id_for_message_challenge().await {
         Some(x) => x,
         None => {
@@ -120,8 +128,9 @@ async fn challenge_start(
 
     Ok(GenericResponse::make(ChallengeStartResponse {
         challenge,
-        method: auth_method.to_owned(),
+        method: auth_method,
         id,
+        ident: state.server_ident.clone(),
     }))
 }
 
@@ -170,33 +179,38 @@ pub async fn challenge_verify(
     let mut state = state.state_write().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    let strong =
-        match state.is_challenge_validated(user_ip, data.account_id, data.solution.parse::<i32>().unwrap_or_default()) {
-            Ok((true, strong)) => strong,
+    let strong = match state.is_challenge_validated(
+        user_ip,
+        data.account_id,
+        data.solution.parse::<i32>().unwrap_or_default(),
+    ) {
+        Ok((true, strong)) => strong,
 
-            Ok((false, _)) => {
-                // tell them to poll again
-                return Ok(GenericResponse::make(ChallengeVerifyResponse {
-                    verified: false,
-                    authtoken: None,
-                    poll_after: Some(state.config.msg_check_interval / 2),
-                }));
-            }
+        Ok((false, _)) => {
+            // tell them to poll again
+            return Ok(GenericResponse::make(ChallengeVerifyResponse {
+                verified: false,
+                authtoken: None,
+                poll_after: Some(state.config.msg_check_interval / 2),
+            }));
+        }
 
-            Err(ChallengeValidationError::NoChallenge) => {
-                return Err(ApiError::bad_request("no auth challenge exists for this IP address"));
-            }
+        Err(ChallengeValidationError::NoChallenge) => {
+            return Err(ApiError::bad_request(
+                "no auth challenge exists for this IP address",
+            ));
+        }
 
-            Err(ChallengeValidationError::WrongAccount) => {
-                return Err(ApiError::bad_request(
-                    "challenge was started for a different account, if you are using a VPN please try turning it off",
-                ));
-            }
+        Err(ChallengeValidationError::WrongAccount) => {
+            return Err(ApiError::bad_request(
+                "challenge was started for a different account, if you are using a VPN please try turning it off",
+            ));
+        }
 
-            Err(ChallengeValidationError::WrongSolution) => {
-                return Err(ApiError::bad_request("challenge solution is incorrect"));
-            }
-        };
+        Err(ChallengeValidationError::WrongSolution) => {
+            return Err(ApiError::bad_request("challenge solution is incorrect"));
+        }
+    };
 
     // the challenge was verified! delete it and generate the authtoken
     state.erase_challenge(user_ip);
@@ -218,12 +232,22 @@ pub struct ValidationResponse {
 }
 
 #[get("/validation/check?<account_id>&<authtoken>")]
-pub async fn validation_check(state: &State<ServerState>, account_id: i32, authtoken: &str) -> Json<ValidationResponse> {
+pub async fn validation_check(
+    state: &State<ServerState>,
+    account_id: i32,
+    authtoken: &str,
+) -> Json<ValidationResponse> {
     let state = state.state_read().await;
 
     Json(ValidationResponse { valid: false })
 }
 
 pub fn build_routes() -> Vec<Route> {
-    routes![status, challenge_start, challenge_restart, challenge_verify, validation_check]
+    routes![
+        status,
+        challenge_start,
+        challenge_restart,
+        challenge_verify,
+        validation_check
+    ]
 }

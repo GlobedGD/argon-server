@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::bail;
 use argon_shared::WorkerAuthMessage;
+use blake2::{Blake2s256, Digest};
 use rand::Rng;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -30,6 +31,17 @@ pub enum ChallengeValidationError {
     WrongAccount,
 }
 
+fn compute_server_ident(secret_key: &str) -> String {
+    // the server ident is a truncated hash of our secret key hexstring
+    let mut hasher = Blake2s256::new();
+    hasher.update(secret_key.as_bytes());
+
+    let mut res = hex::encode(hasher.finalize());
+    res.truncate(16);
+
+    res
+}
+
 pub struct ServerStateData {
     pub config_path: PathBuf,
     pub config: ServerConfig,
@@ -39,10 +51,13 @@ pub struct ServerStateData {
     pub node_handler: Option<Arc<NodeHandler>>,
     pub node_count: usize,
     pub active_node_count: usize,
+    pub server_ident: String,
 }
 
 impl ServerStateData {
     pub fn new(config_path: PathBuf, config: ServerConfig) -> Self {
+        let server_ident = compute_server_ident(&config.secret_key);
+
         Self {
             config,
             config_path,
@@ -50,6 +65,7 @@ impl ServerStateData {
             node_handler: None,
             node_count: 0,
             active_node_count: 0,
+            server_ident,
         }
     }
 
@@ -147,7 +163,11 @@ impl ServerStateData {
                 challenge.validated = true;
 
                 // validate username for strong integrity
-                if message.username.trim().eq_ignore_ascii_case(challenge.username.trim()) {
+                if message
+                    .username
+                    .trim()
+                    .eq_ignore_ascii_case(challenge.username.trim())
+                {
                     challenge.validated_strong = true;
                 }
 
@@ -160,8 +180,9 @@ impl ServerStateData {
         challenge ^ 0x5F3759DF
     }
 
-    pub async fn notify_config_change(&self) {
-        self.node_handler.as_ref().unwrap().notify_config_change().await;
+    pub async fn notify_config_change(&mut self) {
+        // recompute the secret key
+        self.server_ident = compute_server_ident(&self.config.secret_key);
     }
 }
 

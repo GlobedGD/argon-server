@@ -9,7 +9,8 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use argon_shared::{
-    MessageCode, NodeConnection, ReceivedMessage, WorkerAuthMessage, WorkerConfiguration, WorkerError, logger::*,
+    MessageCode, NodeConnection, ReceivedMessage, WorkerAuthMessage, WorkerConfiguration, WorkerError,
+    logger::*,
 };
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -102,7 +103,7 @@ impl NodeHandler {
 
         // TODO: smarter load balancing logic
         for node in &*nodes {
-            if node.used_account_id != -1 {
+            if node.active.load(Ordering::SeqCst) && node.used_account_id != -1 {
                 return Some(node.used_account_id);
             }
         }
@@ -155,7 +156,10 @@ impl NodeHandler {
         } else {
             let nodes = self.nodes.lock().await;
             state.node_count = nodes.len();
-            state.active_node_count = nodes.iter().filter(|node| node.active.load(Ordering::SeqCst)).count();
+            state.active_node_count = nodes
+                .iter()
+                .filter(|node| node.active.load(Ordering::SeqCst))
+                .count();
         }
     }
 
@@ -192,7 +196,12 @@ impl NodeHandler {
                 let this = state.node_handler().await;
 
                 // give them up to 10 seconds
-                match tokio::time::timeout(Duration::from_secs(10), this.handle_incoming_connection(socket, address)).await {
+                match tokio::time::timeout(
+                    Duration::from_secs(10),
+                    this.handle_incoming_connection(socket, address),
+                )
+                .await
+                {
                     Ok(Ok(())) => {}
 
                     Ok(Err(err)) => {
@@ -200,7 +209,9 @@ impl NodeHandler {
                     }
 
                     Err(_) => {
-                        warn!("[{address}] timed out waiting for the node to perform the handshake and login");
+                        warn!(
+                            "[{address}] timed out waiting for the node to perform the handshake and login"
+                        );
                     }
                 }
             });
@@ -352,7 +363,9 @@ impl NodeHandler {
             gjp: String::new(),
         });
 
-        let worker = Arc::new(argon_node::Worker::new_standalone(self.make_worker_config(&acc).await));
+        let worker = Arc::new(argon_node::Worker::new_standalone(
+            self.make_worker_config(&acc).await,
+        ));
 
         let worker_clone = worker.clone();
         tokio::spawn(async move {
@@ -374,12 +387,16 @@ impl NodeHandler {
     }
 
     pub async fn notify_config_change(&self) {
-        // TODO
+        // TODO also note we cant touch state here !
     }
 
     /* handling stuff */
 
     async fn handle_auth_messages(&self, messages: Vec<WorkerAuthMessage>) {
-        self.server_state.state_write().await.validate_challenges(messages).await;
+        self.server_state
+            .state_write()
+            .await
+            .validate_challenges(messages)
+            .await;
     }
 }

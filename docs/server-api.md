@@ -15,6 +15,7 @@ The response is a JSON object, with keys:
 * `active` - boolean, whether the API is active and can be used
 * `total_nodes` - integer, amount of nodes currently registered
 * `active_nodes` - integer, amount of nodes that can process auth requests
+* `ident` - string, server identification
 
 # GET /v1/validation/check
 
