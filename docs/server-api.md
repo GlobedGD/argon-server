@@ -47,10 +47,12 @@ Parameters are expeceted to be passed as a query string, aka `/v1/validation/che
 If the status code is 200 (OK), the response is a JSON object, with keys:
 
 * `valid` - boolean, whether this token is valid and matches all the fields supplied
-* `valid_weak` - boolean, whether this token is valid and matches **at least** the supplied account ID
+* `valid_weak` - boolean, whether this token is valid and matches **at least** the supplied account ID. always `true` if `valid` is `true`
 * `cause` - string, **only present if `valid` and `valid_weak` are `false`**, describes why exactly the token validation failed
-* `cause_weak` - string, **only present is `valid` is `false` but `valid_weak` is `true`**, describes why exactly strong validation failed
+* `username` - string, **only present is `valid_weak` is `true`**, is the actual username of the user as stored in side the token
 
 ## Notes
+
+**Please read this if you will be using this endpoint.**
 
 This endpoint is useful for

@@ -179,7 +179,7 @@ pub async fn challenge_verify(
     let mut state = state.state_write().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    let strong = match state.is_challenge_validated(
+    let _strong = match state.is_challenge_validated(
         user_ip,
         data.account_id,
         data.solution.parse::<i32>().unwrap_or_default(),
@@ -241,7 +241,7 @@ pub struct StrongValidationResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause_weak: Option<String>,
+    pub username: Option<String>,
 }
 
 #[get("/validation/check?<account_id>&<authtoken>")]
@@ -263,14 +263,14 @@ pub async fn validation_check(
         Ok(data) => Json(ValidationResponse {
             valid: false,
             cause: Some(format!(
-                "token was not generated for this account ({}, but expected {})",
+                "token was not generated for this account (account ID {}, but expected {})",
                 data.account_id, account_id
             )),
         }),
 
         Err(err) => Json(ValidationResponse {
             valid: false,
-            cause: Some(err.to_string()),
+            cause: Some(format!("validation failure: {err}")),
         }),
     }
 }
@@ -283,12 +283,55 @@ pub async fn validation_check_strong(
     username: &str,
     authtoken: &str,
 ) -> Json<StrongValidationResponse> {
-    Json(StrongValidationResponse {
-        valid: false,
-        valid_weak: false,
-        cause: None,
-        cause_weak: None,
-    })
+    let state = state.state_read().await;
+
+    let result = state.validate_authtoken(authtoken);
+
+    match result {
+        Ok(data) => {
+            let _fail = |msg| StrongValidationResponse {
+                valid: false,
+                valid_weak: false,
+                cause: Some(msg),
+                username: None,
+            };
+
+            let _fail_strong = || StrongValidationResponse {
+                valid: false,
+                valid_weak: true,
+                cause: None,
+                username: Some(data.username.clone()),
+            };
+
+            if account_id != data.account_id {
+                Json(_fail(format!(
+                    "token was not generated for this account (account ID {}, but expected {})",
+                    data.account_id, account_id
+                )))
+            } else if user_id != data.user_id {
+                Json(_fail(format!(
+                    "token was not generated for this account (user ID {}, but expected {})",
+                    data.account_id, account_id
+                )))
+            } else if !username.trim().eq_ignore_ascii_case(data.username.trim()) {
+                Json(_fail_strong())
+            } else {
+                Json(StrongValidationResponse {
+                    valid: true,
+                    valid_weak: true,
+                    cause: None,
+                    username: Some(data.username.clone()),
+                })
+            }
+        }
+
+        Err(err) => Json(StrongValidationResponse {
+            valid: false,
+            valid_weak: false,
+            cause: Some(format!("validation failure: {err}")),
+            username: None,
+        }),
+    }
 }
 
 pub fn build_routes() -> Vec<Route> {
