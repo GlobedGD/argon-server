@@ -40,6 +40,7 @@ pub enum ChallengeValidationError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthtokenValidationError {
     InvalidFormat,
+    MismatchedIdent,
     InvalidBase64,
     InvalidVersion(u8),
     InvalidSignature,
@@ -51,6 +52,10 @@ impl Display for AuthtokenValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidFormat => write!(f, "invalid format (missing separator)"),
+            Self::MismatchedIdent => write!(
+                f,
+                "mismatched ident (token was made with a different Argon server)"
+            ),
             Self::InvalidBase64 => write!(f, "invalid format (invalid base64)"),
             Self::InvalidVersion(v) => write!(f, "invalid token version {v}"),
             Self::InvalidSignature => write!(f, "signature invalid or mismatched"),
@@ -232,7 +237,7 @@ impl ServerStateData {
         let mut buf = ByteBuffer::from_vec(Vec::with_capacity(64));
 
         // push version
-        buf.write_u8('v' as u8);
+        buf.write_u8(b'v');
         buf.write_u8(AUTHTOKEN_VERSION);
 
         // push metadata (issued at)
@@ -256,11 +261,19 @@ impl ServerStateData {
 
         let part1 = b64e.encode(buf.as_bytes());
 
-        format!("{part1}.{signature}")
+        format!("{}.{part1}.{signature}", self.server_ident)
     }
 
     pub fn validate_authtoken(&self, token: &str) -> Result<AuthtokenData, AuthtokenValidationError> {
-        let (data_enc, sig_enc) = token
+        let (token_ident, rest) = token
+            .split_once('.')
+            .ok_or(AuthtokenValidationError::InvalidFormat)?;
+
+        if token_ident != self.server_ident {
+            return Err(AuthtokenValidationError::MismatchedIdent);
+        }
+
+        let (data_enc, sig_enc) = rest
             .split_once('.')
             .ok_or(AuthtokenValidationError::InvalidFormat)?;
 
