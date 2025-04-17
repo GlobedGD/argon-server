@@ -135,13 +135,22 @@ impl ServerStateData {
         if let Some(c) = self.active_challenges.get(&ip_address)
             && c.started_at.elapsed()? < Duration::from_secs(120)
         {
-            if c.account_id != account_id || c.user_id != user_id || c.username != account_name {
+            if c.account_id != account_id
+                || c.user_id != user_id
+                || !c.username.trim().eq_ignore_ascii_case(account_name.trim())
+            {
+                warn!(
+                    "[{ip_address}] requesting challenge from the same IP but different account (orig: {}/{}/{}, new: {}/{}/{}",
+                    c.account_id, c.user_id, c.username, account_id, user_id, account_name
+                );
                 bail!("challenge already exists for this IP address and for a different account");
             }
 
             if return_existing {
                 return Ok(c.challenge_value);
             }
+
+            warn!("[{ip_address}] requesting challenge from the same IP again when return_existing is false");
 
             bail!("challenge already exists for this IP address");
         }
