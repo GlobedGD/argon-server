@@ -47,6 +47,7 @@ The response is of the general response format, [see below](#response-format). T
 
 * `verified` - boolean, represents whether the challenge has been now successfully verified
 * `authtoken` - string, if `verified` is `true`, then this is the generated authtoken for the user
+* `commentId` - integer, if `verified` is `true`, then this is the ID of the message/comment that the user sent for auth purposes, so the user can submit it for deletion
 * `pollAfter` - integer, if `verified` is `false`, then this is the duration (in milliseconds) that the client should wait before polling the server again
 
 # GET /v1/challenge/verifypoll

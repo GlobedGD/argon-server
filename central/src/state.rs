@@ -29,6 +29,7 @@ pub struct AuthChallenge {
     pub force_strong: bool,
     pub validated: bool,
     pub validated_strong: bool,
+    pub user_comment_id: i32,
 }
 
 pub enum ChallengeValidationError {
@@ -169,6 +170,7 @@ impl ServerStateData {
             force_strong,
             validated: false,
             validated_strong: false,
+            user_comment_id: 0,
         };
 
         self.active_challenges.insert(ip_address, challenge);
@@ -224,6 +226,7 @@ impl ServerStateData {
 
                 // we found a matching message
 
+                challenge.user_comment_id = message.message_id;
                 challenge.validated = true;
                 challenge.actual_username = message.username.clone();
 

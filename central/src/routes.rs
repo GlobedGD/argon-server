@@ -172,6 +172,9 @@ pub struct ChallengeVerifyResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     authtoken: Option<String>,
 
+    #[serde(rename = "commentId", skip_serializing_if = "Option::is_none")]
+    comment_id: Option<i32>,
+
     #[serde(rename = "pollAfter", skip_serializing_if = "Option::is_none")]
     poll_after: Option<u32>,
 }
@@ -198,6 +201,7 @@ pub async fn challenge_verify(
             return Ok(GenericResponse::make(ChallengeVerifyResponse {
                 verified: false,
                 authtoken: None,
+                comment_id: None,
                 poll_after: Some(state.config.msg_check_interval / 2),
             }));
         }
@@ -237,6 +241,7 @@ pub async fn challenge_verify(
     Ok(GenericResponse::make(ChallengeVerifyResponse {
         verified: true,
         authtoken: Some(token),
+        comment_id: Some(challenge.user_comment_id),
         poll_after: None,
     }))
 }
