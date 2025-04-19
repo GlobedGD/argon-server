@@ -1,9 +1,21 @@
 use std::{fmt::Display, str::FromStr, time::Duration};
 
 use argon_shared::logger::*;
-use base64::{Engine as _, engine::general_purpose as b64e};
+use base64::{
+    Engine as _,
+    alphabet::URL_SAFE,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+};
 use parking_lot::Mutex;
 use reqwest::Response;
+
+#[allow(non_upper_case_globals)]
+pub const b64e: GeneralPurpose = GeneralPurpose::new(
+    &URL_SAFE,
+    GeneralPurposeConfig::new()
+        .with_encode_padding(false)
+        .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 
 pub struct GDMessage {
     pub id: i32,
@@ -63,7 +75,10 @@ impl Display for GDClientError {
                 "error code 1005 returned, your internet provider (or VPS host) has been blocked"
             ),
             Self::BlockedGeneric(code) => write!(f, "error code {code} returned by Cloudflare"),
-            Self::NoAccountConfigured => write!(f, "account improperly configured, account ID was not a positive number"),
+            Self::NoAccountConfigured => write!(
+                f,
+                "account improperly configured, account ID was not a positive number"
+            ),
         }
     }
 }
@@ -101,12 +116,14 @@ impl GDClient {
                 return Err(GDClientError::NoAccountConfigured);
             }
 
-            self.client.post(format!("{}/getGJMessages20.php", config.base_url)).form(&[
-                ("accountID", config.account_id.to_string().as_str()),
-                ("gjp2", config.account_gjp.as_str()),
-                ("secret", "Wmfd2893gb7"),
-                ("page", "0"),
-            ])
+            self.client
+                .post(format!("{}/getGJMessages20.php", config.base_url))
+                .form(&[
+                    ("accountID", config.account_id.to_string().as_str()),
+                    ("gjp2", config.account_gjp.as_str()),
+                    ("secret", "Wmfd2893gb7"),
+                    ("page", "0"),
+                ])
         };
 
         let result = req.send().await;
@@ -148,7 +165,8 @@ impl GDClient {
     }
 
     pub async fn delete_messages(&self, message_ids: &[i32]) -> Result<(), GDClientError> {
-        self.delete_messages_str(&itertools::join(message_ids.iter(), ",")).await
+        self.delete_messages_str(&itertools::join(message_ids.iter(), ","))
+            .await
     }
 
     pub async fn delete_messages_str(&self, message_str: &str) -> Result<(), GDClientError> {
@@ -188,7 +206,11 @@ impl GDClient {
         };
 
         if text.starts_with("error code: ") {
-            let code = text.strip_prefix("error code: ").unwrap().parse::<i32>().unwrap_or(0);
+            let code = text
+                .strip_prefix("error code: ")
+                .unwrap()
+                .parse::<i32>()
+                .unwrap_or(0);
 
             Err(match code {
                 1005 => GDClientError::BlockedProvider,
@@ -258,10 +280,12 @@ impl FromStr for GDMessage {
                     }
 
                     "4" => {
-                        title = b64e::URL_SAFE
+                        title = b64e
                             .decode(part)
                             .map_err(|_| MessageParseError::InvalidTitle)
-                            .and_then(|v| String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle))?;
+                            .and_then(|v| {
+                                String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle)
+                            })?;
                     }
 
                     "6" => {

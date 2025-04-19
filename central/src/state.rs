@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::bail;
 use argon_shared::{WorkerAuthMessage, logger::*};
-use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD as b64e};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::{ByteBuffer, ByteReader};
 use rand::Rng;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};

@@ -241,6 +241,16 @@ pub async fn challenge_verify(
     }))
 }
 
+#[post("/challenge/verifypoll", data = "<data>")]
+pub async fn challenge_verify_poll(
+    state: &State<ServerState>,
+    data: Json<ChallengeVerifyData>,
+    ip: IpAddr,
+    cfip: CloudflareIPGuard,
+) -> ClientApiResult<ChallengeVerifyResponse> {
+    challenge_verify(state, data, ip, cfip).await
+}
+
 /* Validation */
 
 #[derive(Serialize)]
@@ -360,6 +370,7 @@ pub fn build_routes() -> Vec<Route> {
         challenge_start,
         challenge_restart,
         challenge_verify,
+        challenge_verify_poll,
         validation_check,
         validation_check_strong
     ]

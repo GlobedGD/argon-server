@@ -33,6 +33,10 @@ If the status code is 200 (OK), the response is a JSON object, with keys:
 * `valid` - boolean, whether this token is valid and matches the supplied account ID
 * `cause` - string, **only present if `valid` is `false`**, describes why exactly the token validation failed
 
+## Notes
+
+Upon a validation failure, it is recommended to make the user regenerate the authtoken.
+
 # GET /v1/validation/check_strong
 
 Checks whether an authtoken is valid and matches the given account ID, user ID and username that are sent by the user.

@@ -53,7 +53,7 @@ The response is of the general response format, [see below](#response-format). T
 
 Check whether account verification is done.
 
-The response is identical to that of [/v1/challenge/verify](#post-v1challengeverify).
+The payload and response is identical to that of [/v1/challenge/verify](#post-v1challengeverify).
 
 # Response Format
 
