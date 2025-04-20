@@ -38,14 +38,20 @@ impl IpBlocker {
                 .unwrap_or_default()
                 .split(';')
             {
-                v4.push(ip.to_owned());
+                if !ip.is_empty() {
+                    debug!("Adding extra allowed IP: {ip}");
+                    v4.push(ip.to_owned());
+                }
             }
 
             for ip in std::env::var("ARGON_EXTRA_ALLOW_IPS_V6")
                 .unwrap_or_default()
                 .split(';')
             {
-                v6.push(ip.to_owned());
+                if !ip.is_empty() {
+                    debug!("Adding extra allowed IP: {ip}");
+                    v6.push(ip.to_owned());
+                }
             }
 
             Self::new(&v4, &v6)
