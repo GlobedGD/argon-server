@@ -176,7 +176,7 @@ impl NodeHandler {
 
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
-            // watch over nodes and mark as inactive if they didnt process anything
+            // TODO: watch over nodes and mark as inactive if they didnt process anything
         }
 
         Ok(())
@@ -334,6 +334,7 @@ impl NodeHandler {
 
                 // mark node as active
                 node.set_active(true);
+                self.update_node_counter().await;
 
                 self.handle_auth_messages(messages).await;
             }
@@ -352,6 +353,7 @@ impl NodeHandler {
                 if data.fail_count > 3 {
                     // mark node as inactive
                     node.set_active(false);
+                    self.update_node_counter().await;
                 }
             }
 
