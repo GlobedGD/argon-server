@@ -48,14 +48,18 @@ impl RateLimiter {
     pub fn record_challenge_start(&mut self, user_ip: IpAddr, account_id: i32) {
         let ent = self.cache_map.entry(user_ip).or_default();
 
-        if ent.account_id == 0 && ent.account_ids.is_empty() {
-            ent.account_id = account_id;
-        } else if ent.account_ids.is_empty() {
+        // if vec is not empty, push into it when needed
+        if !ent.account_ids.is_empty() {
+            if !ent.account_ids.contains(&account_id) {
+                ent.account_ids.push(account_id);
+            }
+        } else if ent.account_id == 0 || ent.account_id == account_id {
+            ent.account_id = account_id
+        } else {
+            // they are different and both nonzero
             ent.account_ids.push(ent.account_id);
             ent.account_ids.push(account_id);
             ent.account_id = 0;
-        } else {
-            ent.account_ids.push(account_id);
         }
 
         ent.challenges += 1;
