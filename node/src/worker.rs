@@ -16,7 +16,8 @@ use tokio::{
 
 use crate::gd_client::{GDClient, GDMessage};
 use argon_shared::{
-    MessageCode, NodeConnection, ReceiveError, SendError, WorkerAuthMessage, WorkerConfiguration, WorkerError, logger::*,
+    MessageCode, NodeConnection, ReceiveError, SendError, WorkerAuthMessage, WorkerConfiguration,
+    WorkerError, logger::*,
 };
 use parking_lot::Mutex;
 use serde_json::json;
@@ -27,7 +28,10 @@ pub struct ToDeleteMessage {
     pub fetched_at: SystemTime,
 }
 
-type ChallengeChannel = (Sender<Vec<WorkerAuthMessage>>, AsyncMutex<Receiver<Vec<WorkerAuthMessage>>>);
+type ChallengeChannel = (
+    Sender<Vec<WorkerAuthMessage>>,
+    AsyncMutex<Receiver<Vec<WorkerAuthMessage>>>,
+);
 
 pub struct Worker {
     pub gd_client: AsyncMutex<GDClient>,
@@ -85,7 +89,11 @@ impl Worker {
     }
 
     fn _new_with_central(central: Option<NodeConnection>, config: WorkerConfiguration) -> Self {
-        let gd_client = GDClient::new(config.account_id, config.account_gjp.clone(), config.base_url.clone());
+        let gd_client = GDClient::new(
+            config.account_id,
+            config.account_gjp.clone(),
+            config.base_url.clone(),
+        );
 
         let auth_challenge_channel = if central.is_none() {
             let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -145,6 +153,8 @@ impl Worker {
                     // process the messages
                     let auth_messages = self.process_auth_messages(messages);
 
+                    debug!("sending {} auth messages", auth_messages.len());
+
                     self.report_messages(auth_messages).await?;
                 }
 
@@ -163,6 +173,8 @@ impl Worker {
             // check if the interval has been changed and recreate if needed
             let new_interval = self.config.lock().await.msg_check_interval;
             if new_interval != interval_ms {
+                info!("Changing message fetch interval to {}ms", new_interval);
+
                 interval_ms = new_interval;
                 interval = tokio::time::interval(Duration::from_millis(interval_ms as u64));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -171,7 +183,11 @@ impl Worker {
         }
     }
 
-    async fn fetch_messages(&self, client: &GDClient, conn: Option<&NodeConnection>) -> Result<Vec<GDMessage>> {
+    async fn fetch_messages(
+        &self,
+        client: &GDClient,
+        conn: Option<&NodeConnection>,
+    ) -> Result<Vec<GDMessage>> {
         match client.fetch_messages().await {
             Ok(x) => {
                 self.reset_failure_count();
@@ -237,7 +253,10 @@ impl Worker {
             // only count as an auth attempt if the message has been sent less than a minute ago
             // and the title matches what we expect
             if message.age < Duration::from_mins(1) && message.title.starts_with("#ARGON# ") {
-                let challenge_answer = message.title.strip_prefix("#ARGON# ").and_then(|x| x.parse::<i32>().ok());
+                let challenge_answer = message
+                    .title
+                    .strip_prefix("#ARGON# ")
+                    .and_then(|x| x.parse::<i32>().ok());
 
                 if let Some(challenge_answer) = challenge_answer {
                     auth_messages.push(WorkerAuthMessage {
@@ -280,10 +299,16 @@ impl Worker {
     async fn report_messages(&self, messages: Vec<WorkerAuthMessage>) -> Result<()> {
         if let Some(conn) = self.central.as_ref() {
             // report the messages to the central server
-            conn.send_message(MessageCode::NodeReportMessages, &messages).await?;
+            conn.send_message(MessageCode::NodeReportMessages, &messages)
+                .await?;
         } else {
             // report the messages to the mpsc channel
-            self.auth_challenge_channel.as_ref().unwrap().0.send(messages).await?;
+            self.auth_challenge_channel
+                .as_ref()
+                .unwrap()
+                .0
+                .send(messages)
+                .await?;
         }
 
         Ok(())
@@ -314,6 +339,12 @@ impl Worker {
     pub async fn receive_channel_messages(&self) -> Result<Vec<WorkerAuthMessage>> {
         let channel = self.auth_challenge_channel.as_ref().unwrap();
 
-        channel.1.lock().await.recv().await.ok_or(anyhow!("mpsc channel closed"))
+        channel
+            .1
+            .lock()
+            .await
+            .recv()
+            .await
+            .ok_or(anyhow!("mpsc channel closed"))
     }
 }

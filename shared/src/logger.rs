@@ -10,9 +10,7 @@ use parking_lot::Mutex as SyncMutex;
 use time::{OffsetDateTime, format_description};
 
 pub use log;
-pub use log::{
-    Level as LogLevel, LevelFilter as LogLevelFilter, Log, debug, error, info, trace, warn,
-};
+pub use log::{Level as LogLevel, LevelFilter as LogLevelFilter, Log, debug, error, info, trace, warn};
 
 pub struct Logger {
     pub format_desc: Vec<format_description::FormatItem<'static>>,

@@ -155,7 +155,10 @@ impl Display for HandshakeError {
         match self {
             Self::Send(e) => write!(f, "{e}"),
             Self::Receive(e) => write!(f, "{e}"),
-            Self::UnexpectedMessage => write!(f, "unexpected message arrived when waiting for handshake response"),
+            Self::UnexpectedMessage => write!(
+                f,
+                "unexpected message arrived when waiting for handshake response"
+            ),
             Self::InvalidPubkey => write!(f, "server sent an invalid public key"),
         }
     }
@@ -251,8 +254,11 @@ impl NodeConnection {
         }?;
 
         // send them our pubkey
-        self.send_message(MessageCode::HandshakeResponse, &hex::encode(public_key.to_bytes()))
-            .await?;
+        self.send_message(
+            MessageCode::HandshakeResponse,
+            &hex::encode(public_key.to_bytes()),
+        )
+        .await?;
 
         // initialize crypto box
         let crypto_box = CryptoBox::new_shared(&node_pubkey, &secret_key);
@@ -403,6 +409,9 @@ impl NodeConnection {
 
         let data = value.get_mut("data").ok_or(ReceiveError::InvalidStructure)?;
 
-        Ok(ReceivedMessage { code, data: data.take() })
+        Ok(ReceivedMessage {
+            code,
+            data: data.take(),
+        })
     }
 }

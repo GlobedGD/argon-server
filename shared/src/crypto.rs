@@ -108,11 +108,7 @@ impl CryptoBox {
         out.extend_from_slice(&data[ciphertext_start..]);
 
         // decrypt in-place
-        match run_thing!(
-            self,
-            b,
-            b.decrypt_in_place_detached(&nonce, b"", &mut out, &mac)
-        ) {
+        match run_thing!(self, b, b.decrypt_in_place_detached(&nonce, b"", &mut out, &mac)) {
             Ok(()) => Ok(out),
             Err(_) => Err(CryptoBoxError),
         }

@@ -324,6 +324,8 @@ impl NodeHandler {
                     Err(err) => return Err(anyhow!("failed to parse messages: {err}")),
                 };
 
+                debug!("[{}] received {} messages from node", node.addr, messages.len());
+
                 // mark node as active
                 node.set_active(true);
 

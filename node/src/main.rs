@@ -63,13 +63,23 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(NodeState::new());
 
-    match state.try_connect(server_addr, &password).await {
-        Ok(()) => {}
-        Err(e) => {
+    info!("Connecting to the central argon server..");
+
+    match tokio::time::timeout(Duration::from_secs(10), state.try_connect(server_addr, &password)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
             error!("connection failed: {e}");
             warn!("hint: ensure the server address and password are correct");
+            warn!("hint: ensure you are putting address and port of the node handler, not the HTTP server");
+            abort_misconfig();
+        }
+
+        Err(_) => {
+            error!("connection timed out, server did not respond after 10 seconds.");
+            warn!("hint: ensure the server is reachable and the address & port are correct");
+            warn!("hint: ensure that in the central server distributed mode is enabled,");
             warn!(
-                "hint: ensure you are putting address and port of the node handler, not the HTTP server"
+                "hint: and that you are inputting the address and port of the node handler, not the HTTP server"
             );
             abort_misconfig();
         }
@@ -82,8 +92,7 @@ async fn main() -> anyhow::Result<()> {
         if let Err(err) = state_clone.run_loop().await {
             error!("Worker loop terminated due to error: {err}");
 
-            match tokio::time::timeout(Duration::from_secs(5), state_clone.close_connection()).await
-            {
+            match tokio::time::timeout(Duration::from_secs(5), state_clone.close_connection()).await {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => error!("Error during closing the connection: {err}"),
                 Err(_) => warn!("Timed out during closing the connection"),

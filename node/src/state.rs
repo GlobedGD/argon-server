@@ -29,7 +29,8 @@ impl NodeState {
 
         conn.perform_handshake().await?;
 
-        conn.send_message(MessageCode::NodeStartup, &password.to_owned()).await?;
+        conn.send_message(MessageCode::NodeStartup, &password.to_owned())
+            .await?;
 
         let msg = conn.receive_message().await?;
 
