@@ -4,6 +4,7 @@ use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
 use node_handler::NodeHandler;
+use rocket::routes;
 use state::{ServerState, ServerStateData};
 use std::{
     error::Error,
@@ -203,6 +204,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let rocket = rocket::build()
         .mount("/v1/", routes::build_routes())
+        .mount("/", routes![routes::index])
         .manage(state);
 
     rocket.launch().await?;

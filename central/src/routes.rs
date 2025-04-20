@@ -509,6 +509,11 @@ pub async fn validation_check_strong(
     })
 }
 
+#[get("/")]
+pub async fn index() -> &'static str {
+    "There is nothing interesting here. Not yet, at least."
+}
+
 pub fn build_routes() -> Vec<Route> {
     routes![
         status,
