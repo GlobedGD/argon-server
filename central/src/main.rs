@@ -1,4 +1,9 @@
-#![feature(let_chains, duration_constructors, duration_millis_float)]
+#![feature(
+    let_chains,
+    duration_constructors,
+    duration_millis_float,
+    iterator_try_collect
+)]
 
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};

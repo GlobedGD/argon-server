@@ -34,15 +34,48 @@ impl IpBlocker {
                 }
             }
 
+            for ip in std::env::var("ARGON_EXTRA_ALLOW_IPS")
+                .unwrap_or_default()
+                .split(';')
+            {
+                v4.push(ip.to_owned());
+            }
+
+            for ip in std::env::var("ARGON_EXTRA_ALLOW_IPS_V6")
+                .unwrap_or_default()
+                .split(';')
+            {
+                v6.push(ip.to_owned());
+            }
+
             Self::new(&v4, &v6)
         })
     }
 
     pub fn new(v4: &[String], v6: &[String]) -> Self {
-        let range_v4 = v4.iter().map(|s| s.parse().unwrap()).collect();
-        let range_v6 = v6.iter().map(|s| s.parse().unwrap()).collect();
+        let range_v4 = v4.iter().map(|s| s.parse()).try_collect();
+        let range_v6 = v6.iter().map(|s| s.parse()).try_collect();
 
-        Self { range_v4, range_v6 }
+        if let Err(err) = range_v4 {
+            error!(
+                "Error parsing some IPv4 addresses in either allowed_ranges.txt or the ARGON_EXTRA_ALLOW_IPS environment variable: {err}"
+            );
+            error!("Fix the issue and restart the server.");
+            std::process::exit(1);
+        }
+
+        if let Err(err) = range_v4 {
+            error!(
+                "Error parsing some IPv6 addresses in either allowed_ranges.txt or the ARGON_EXTRA_ALLOW_IPS_V6 environment variable: {err}"
+            );
+            error!("Fix the issue and restart the server.");
+            std::process::exit(1);
+        }
+
+        Self {
+            range_v4: range_v4.unwrap(),
+            range_v6: range_v6.unwrap(),
+        }
     }
 
     pub fn is_allowed(&self, address: &IpAddr) -> bool {
