@@ -105,11 +105,18 @@ async fn challenge_start(
     ip: IpAddr,
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeStartResponse> {
-    // TODO: rate limit checks
+    if data.account_id <= 0 || data.user_id <= 0 || !(1usize..=16usize).contains(&data.username.trim().len())
+    {
+        return Err(ApiError::bad_request("invalid account data"));
+    }
 
     let mut state = state.state_write().await;
 
-    let _user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if !state.rate_limiter.can_start_challenge(user_ip, data.account_id) {
+        return Err(ApiError::too_many_requests("rate limit exceeded"));
+    }
 
     // Currently, only message auth is supported
     let auth_method = "message";
@@ -184,7 +191,11 @@ pub async fn challenge_verify(
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
     let mut state = state.state_write().await;
-    let _user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if !state.rate_limiter.can_verify_poll(user_ip, data.account_id) {
+        return Err(ApiError::too_many_requests("rate limit exceeded"));
+    }
 
     let strong = match state.is_challenge_validated(
         data.challenge_id,
@@ -204,18 +215,24 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::NoChallenge) => {
+            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+
             return Err(ApiError::bad_request(
-                "no auth challenge exists for this IP address",
+                "no auth challenge exists for this challenge ID, try again",
             ));
         }
 
         Err(ChallengeValidationError::WrongAccount) => {
+            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+
             return Err(ApiError::bad_request(
-                "challenge was started for a different account, if you are using a VPN please turn it off of try again in a minute",
+                "challenge was started for a different account",
             ));
         }
 
         Err(ChallengeValidationError::WrongSolution) => {
+            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+
             return Err(ApiError::bad_request("challenge solution is incorrect"));
         }
     };
@@ -223,6 +240,10 @@ pub async fn challenge_verify(
     // the challenge was verified! delete it and generate the authtoken
     let challenge = state.erase_challenge(data.challenge_id);
     assert!(challenge.is_some(), "challenge should exist after being verified");
+
+    state
+        .rate_limiter
+        .record_challenge_success(user_ip, data.account_id);
 
     let challenge = challenge.unwrap();
 
@@ -277,12 +298,20 @@ pub async fn validation_check(
     state: &State<ServerState>,
     account_id: i32,
     authtoken: &str,
-) -> Json<ValidationResponse> {
+    ip: IpAddr,
+    cfip: CloudflareIPGuard,
+) -> ApiResult<Json<ValidationResponse>> {
     let state = state.state_read().await;
+
+    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if !state.rate_limiter.can_validate(user_ip) {
+        return Err(ApiError::too_many_requests("rate limit exceeded"));
+    }
 
     let result = state.validate_authtoken(authtoken);
 
-    match result {
+    Ok(match result {
         Ok(data) if data.account_id == account_id => Json(ValidationResponse {
             valid: true,
             cause: None,
@@ -300,7 +329,7 @@ pub async fn validation_check(
             valid: false,
             cause: Some(format!("validation failure: {err}")),
         }),
-    }
+    })
 }
 
 #[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
@@ -310,12 +339,20 @@ pub async fn validation_check_strong(
     user_id: Option<i32>,
     username: Option<&str>,
     authtoken: &str,
-) -> Json<StrongValidationResponse> {
+    ip: IpAddr,
+    cfip: CloudflareIPGuard,
+) -> ApiResult<Json<StrongValidationResponse>> {
     let state = state.state_read().await;
+
+    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if !state.rate_limiter.can_validate(user_ip) {
+        return Err(ApiError::too_many_requests("rate limit exceeded"));
+    }
 
     let result = state.validate_authtoken(authtoken);
 
-    match result {
+    Ok(match result {
         Ok(data) => {
             let _fail = |msg| StrongValidationResponse {
                 valid: false,
@@ -363,7 +400,7 @@ pub async fn validation_check_strong(
             cause: Some(format!("validation failure: {err}")),
             username: None,
         }),
-    }
+    })
 }
 
 pub fn build_routes() -> Vec<Route> {

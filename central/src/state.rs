@@ -13,14 +13,16 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::{ByteBuffer, ByteReader};
 use nohash_hasher::IntMap;
 use rand::Rng;
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tokio::{
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    time::MissedTickBehavior,
+};
 
-use crate::{config::ServerConfig, node_handler::NodeHandler};
+use crate::{config::ServerConfig, node_handler::NodeHandler, rate_limiter::RateLimiter};
 
 const AUTHTOKEN_VERSION: u8 = 1;
 
 pub struct AuthChallenge {
-    pub challenge_id: u32,
     pub account_id: i32,
     pub user_id: i32,
     pub username: String,
@@ -94,6 +96,7 @@ fn compute_server_ident(secret_key: &str) -> String {
 pub struct ServerStateData {
     pub config_path: PathBuf,
     pub config: ServerConfig,
+    pub rate_limiter: RateLimiter,
     active_challenges: IntMap<u32, AuthChallenge>,
 
     // node handler stuff
@@ -111,7 +114,10 @@ impl ServerStateData {
         hex::decode_to_slice(&config.secret_key, &mut authtoken_secret_key)
             .expect("invalid secret key format");
 
+        let rate_limiter = RateLimiter::new(&config);
+
         Self {
+            rate_limiter,
             config,
             config_path,
             active_challenges: IntMap::default(),
@@ -136,7 +142,6 @@ impl ServerStateData {
         let answer = Self::make_challenge_answer(challenge_value);
 
         let challenge = AuthChallenge {
-            challenge_id,
             account_id,
             user_id,
             username: account_name,
@@ -311,6 +316,11 @@ impl ServerStateData {
         })
     }
 
+    pub async fn run_cleanup(&mut self) {
+        self.active_challenges
+            .retain(|_k, v| v.started_at.elapsed().unwrap_or_default() < Duration::from_mins(3));
+    }
+
     pub async fn notify_config_change(&mut self) {
         // recompute the secret key
         self.server_ident = compute_server_ident(&self.config.secret_key);
@@ -354,5 +364,16 @@ impl ServerState {
             .node_handler
             .clone()
             .expect("NodeHandler must be initialized by now")
+    }
+
+    pub async fn run_cleanup_loop(&self) -> ! {
+        let mut interval = tokio::time::interval(Duration::from_mins(15));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+            self.state_write().await.run_cleanup().await;
+        }
     }
 }

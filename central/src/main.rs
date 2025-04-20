@@ -1,4 +1,4 @@
-#![feature(let_chains)]
+#![feature(let_chains, duration_constructors)]
 
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
@@ -18,6 +18,7 @@ mod api_error;
 mod config;
 mod ip_blocker;
 mod node_handler;
+mod rate_limiter;
 mod routes;
 mod routes_util;
 mod state;
@@ -190,6 +191,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         let node_handler = nh_state.node_handler().await;
         node_handler.run().await.unwrap();
+    });
+
+    // start periodic state cleanup
+    let cl_state = state.clone();
+    tokio::spawn(async move {
+        cl_state.run_cleanup_loop().await;
     });
 
     // start rocket
