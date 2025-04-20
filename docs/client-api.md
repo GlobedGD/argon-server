@@ -25,6 +25,7 @@ The response is of the general response format, [see below](#response-format). T
 
 * `method` - string, the chosen authentication method by the server. See the [Authentication methods](#authentication-methods) section for more information.
 * `id` - integer, value depends on the authentication method
+* `challengeId` - integer, unique challenge ID that must be sent in the verification request
 * `challenge` - integer, is a random challenge value
 * `ident` - string, server identification, not related to the specific challenge
 
@@ -40,6 +41,7 @@ Submit the solution to the verification challenge and request the Argon server t
 
 Payload is a JSON object, with keys:
 
+* `challengeId` - integer, challenge ID obtained from starting the challenge
 * `accountId` - integer, account ID of the user
 * `solution` - string, solution to the authentication challenge
 

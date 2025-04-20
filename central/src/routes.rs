@@ -92,6 +92,8 @@ struct ChallengeStartData {
 pub struct ChallengeStartResponse {
     pub method: &'static str,
     pub id: i32,
+    #[serde(rename = "challengeId")]
+    pub challenge_id: u32,
     pub challenge: i32,
     pub ident: String,
 }
@@ -107,18 +109,16 @@ async fn challenge_start(
 
     let mut state = state.state_write().await;
 
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+    let _user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     // Currently, only message auth is supported
     let auth_method = "message";
 
-    let challenge = match state.create_challenge(
+    let (challenge_id, challenge) = match state.create_challenge(
         data.account_id,
         data.user_id,
         data.username.clone(),
-        user_ip,
         data.force_strong,
-        true,
     ) {
         Ok(c) => c,
         Err(err) => return Err(ApiError::bad_request(err.to_string())),
@@ -135,6 +135,7 @@ async fn challenge_start(
 
     Ok(GenericResponse::make(ChallengeStartResponse {
         challenge,
+        challenge_id,
         method: auth_method,
         id,
         ident: state.server_ident.clone(),
@@ -148,18 +149,14 @@ async fn challenge_restart(
     ip: IpAddr,
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeStartResponse> {
-    {
-        let mut state = state.state_write().await;
-        let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
-
-        state.erase_challenge(user_ip);
-    }
-
     challenge_start(state, data, ip, cfip).await
 }
 
 #[derive(Deserialize)]
 pub struct ChallengeVerifyData {
+    #[serde(rename = "challengeId")]
+    challenge_id: u32,
+
     #[serde(rename = "accountId")]
     account_id: i32,
     solution: String,
@@ -187,10 +184,10 @@ pub async fn challenge_verify(
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
     let mut state = state.state_write().await;
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+    let _user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     let strong = match state.is_challenge_validated(
-        user_ip,
+        data.challenge_id,
         data.account_id,
         data.solution.parse::<i32>().unwrap_or_default(),
     ) {
@@ -224,7 +221,7 @@ pub async fn challenge_verify(
     };
 
     // the challenge was verified! delete it and generate the authtoken
-    let challenge = state.erase_challenge(user_ip);
+    let challenge = state.erase_challenge(data.challenge_id);
     assert!(challenge.is_some(), "challenge should exist after being verified");
 
     let challenge = challenge.unwrap();

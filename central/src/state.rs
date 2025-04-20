@@ -11,6 +11,7 @@ use anyhow::bail;
 use argon_shared::{WorkerAuthMessage, logger::*};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::{ByteBuffer, ByteReader};
+use nohash_hasher::IntMap;
 use rand::Rng;
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -19,6 +20,7 @@ use crate::{config::ServerConfig, node_handler::NodeHandler};
 const AUTHTOKEN_VERSION: u8 = 1;
 
 pub struct AuthChallenge {
+    pub challenge_id: u32,
     pub account_id: i32,
     pub user_id: i32,
     pub username: String,
@@ -92,7 +94,7 @@ fn compute_server_ident(secret_key: &str) -> String {
 pub struct ServerStateData {
     pub config_path: PathBuf,
     pub config: ServerConfig,
-    active_challenges: HashMap<IpAddr, AuthChallenge>,
+    active_challenges: IntMap<u32, AuthChallenge>,
 
     // node handler stuff
     pub node_handler: Option<Arc<NodeHandler>>,
@@ -112,7 +114,7 @@ impl ServerStateData {
         Self {
             config,
             config_path,
-            active_challenges: HashMap::new(),
+            active_challenges: IntMap::default(),
             node_handler: None,
             node_count: 0,
             active_node_count: 0,
@@ -121,45 +123,20 @@ impl ServerStateData {
         }
     }
 
-    /// creates a new challenge, returns the challenge value to the user.
-    /// returns error if challenge already exists for the ip address and `return_existing` is false
+    /// creates a new challenge, returns the challenge id and value to the user.
     pub fn create_challenge(
         &mut self,
         account_id: i32,
         user_id: i32,
         account_name: String,
-        ip_address: IpAddr,
         force_strong: bool,
-        return_existing: bool,
-    ) -> anyhow::Result<i32> {
-        // check if a challenge already exists for this ip and it has not expired
-        if let Some(c) = self.active_challenges.get(&ip_address)
-            && c.started_at.elapsed()? < Duration::from_secs(120)
-        {
-            if c.account_id != account_id
-                || c.user_id != user_id
-                || !c.username.trim().eq_ignore_ascii_case(account_name.trim())
-            {
-                warn!(
-                    "[{ip_address}] requesting challenge from the same IP but different account (orig: {}/{}/{}, new: {}/{}/{}",
-                    c.account_id, c.user_id, c.username, account_id, user_id, account_name
-                );
-                bail!("challenge already exists for this IP address and for a different account");
-            }
-
-            if return_existing {
-                return Ok(c.challenge_value);
-            }
-
-            warn!("[{ip_address}] requesting challenge from the same IP again when return_existing is false");
-
-            bail!("challenge already exists for this IP address");
-        }
-
+    ) -> anyhow::Result<(u32, i32)> {
         let challenge_value = rand::rng().random::<i32>();
+        let challenge_id = rand::rng().random::<u32>();
         let answer = Self::make_challenge_answer(challenge_value);
 
         let challenge = AuthChallenge {
+            challenge_id,
             account_id,
             user_id,
             username: account_name,
@@ -173,20 +150,20 @@ impl ServerStateData {
             user_comment_id: 0,
         };
 
-        self.active_challenges.insert(ip_address, challenge);
+        self.active_challenges.insert(challenge_id, challenge);
 
-        Ok(challenge_value)
+        Ok((challenge_id, challenge_value))
     }
 
     /// Returns whether the challenge has been validated, first bool is validated, second is strong validation.
-    /// Returns an error if no challenge exists for this IP, or other errors have occurred.
+    /// Returns an error if no challenge exists for the given challenge ID, or other errors have occurred.
     pub fn is_challenge_validated(
         &self,
-        ip_address: IpAddr,
+        challenge_id: u32,
         account_id: i32,
         solution: i32,
     ) -> Result<(bool, bool), ChallengeValidationError> {
-        let challenge = self.active_challenges.get(&ip_address);
+        let challenge = self.active_challenges.get(&challenge_id);
 
         if let Some(c) = challenge {
             if c.account_id != account_id {
@@ -208,8 +185,8 @@ impl ServerStateData {
         node_handler.pick_challenge_account_id().await
     }
 
-    pub fn erase_challenge(&mut self, ip_address: IpAddr) -> Option<AuthChallenge> {
-        self.active_challenges.remove(&ip_address)
+    pub fn erase_challenge(&mut self, challenge_id: u32) -> Option<AuthChallenge> {
+        self.active_challenges.remove(&challenge_id)
     }
 
     pub async fn validate_challenges(&mut self, messages: Vec<WorkerAuthMessage>) {
