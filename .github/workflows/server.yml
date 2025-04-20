@@ -81,28 +81,28 @@ jobs:
         shell: bash
 
       - name: Create artifacts folder
-        run: mkdir -p server/artifacts
+        run: mkdir -p artifacts
         shell: bash
 
       - name: Copy artifacts (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cp server/target/${{ matrix.target }}/release/argon-node.exe server/artifacts/argon-node${{ matrix.bin-suffix }} || :
-          cp server/target/${{ matrix.target }}/release/argon-server.exe server/artifacts/argon-central${{ matrix.bin-suffix }} || :
+          cp target/${{ matrix.target }}/release/argon-node.exe artifacts/argon-node${{ matrix.bin-suffix }} || :
+          cp target/${{ matrix.target }}/release/argon-server.exe artifacts/argon-central${{ matrix.bin-suffix }} || :
         shell: bash
 
       - name: Copy artifacts (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cp server/target/${{ matrix.target }}/release/argon-node server/artifacts/argon-node${{ matrix.bin-suffix }} || :
-          cp server/target/${{ matrix.target }}/release/argon-server server/artifacts/argon-central${{ matrix.bin-suffix }} || :
+          cp target/${{ matrix.target }}/release/argon-node artifacts/argon-node${{ matrix.bin-suffix }} || :
+          cp target/${{ matrix.target }}/release/argon-server artifacts/argon-central${{ matrix.bin-suffix }} || :
         shell: bash
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-build
-          path: server/artifacts/*
+          path: artifacts/*
 
   merge:
     name: Merge artifacts
@@ -112,5 +112,5 @@ jobs:
       - name: Merge artifacts
         uses: actions/upload-artifact/merge@v4
         with:
-          name: globed-server-build
+          name: argon-server-build
           delete-merged: true
