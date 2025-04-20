@@ -4,7 +4,7 @@ TODO: links
 
 This describes the API used by the client side of Argon. You should not need this if you are a mod developer looking to integrate Argon. Instead you might be looking for [the C++ api](https://example.com) and [the server-side api](./server-api.md  )
 
-The base URL for our instance is https://argon.dankmeme.dev
+The base URL for our instance is https://argon.globed.dev
 
 All requests must to this API must have a user agent that starts with a string in format `argon/v1.0.0` where `1.0.0` is the version of Argon used to make the request. Otherwise an error will be returned.
 
