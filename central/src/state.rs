@@ -371,9 +371,21 @@ impl ServerState {
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
         interval.tick().await;
 
+        let mut counter = 0usize;
+
         loop {
             interval.tick().await;
-            self.state_write().await.run_cleanup().await;
+
+            let mut state = self.state_write().await;
+            state.run_cleanup().await;
+
+            // every hour, clear the rate limiter cache
+
+            counter += 1;
+            if counter == 4 {
+                counter = 0;
+                state.rate_limiter.clear_cache();
+            }
         }
     }
 }

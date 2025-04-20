@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 
+use argon_shared::logger::*;
 use rocket::{Route, State, get, post, routes, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
@@ -115,8 +116,16 @@ async fn challenge_start(
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if !state.rate_limiter.can_start_challenge(user_ip, data.account_id) {
+        warn!(
+            "[{} @ {user_ip}] disallowing challenge start, rate limit exceeded",
+            data.account_id
+        );
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
+
+    state
+        .rate_limiter
+        .record_challenge_start(user_ip, data.account_id);
 
     // Currently, only message auth is supported
     let auth_method = "message";
@@ -194,6 +203,10 @@ pub async fn challenge_verify(
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if !state.rate_limiter.can_verify_poll(user_ip, data.account_id) {
+        warn!(
+            "[{} @ {user_ip}] disallowing challenge verify, rate limit exceeded",
+            data.account_id
+        );
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
 
@@ -216,6 +229,10 @@ pub async fn challenge_verify(
 
         Err(ChallengeValidationError::NoChallenge) => {
             state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            warn!(
+                "[{} @ {user_ip}] attempting to verify inexisting challenge",
+                data.account_id
+            );
 
             return Err(ApiError::bad_request(
                 "no auth challenge exists for this challenge ID, try again",
@@ -224,6 +241,10 @@ pub async fn challenge_verify(
 
         Err(ChallengeValidationError::WrongAccount) => {
             state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            warn!(
+                "[{} @ {user_ip}] attempting to verify challenge for the wrong account",
+                data.account_id
+            );
 
             return Err(ApiError::bad_request(
                 "challenge was started for a different account",
@@ -232,6 +253,10 @@ pub async fn challenge_verify(
 
         Err(ChallengeValidationError::WrongSolution) => {
             state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            warn!(
+                "[{} @ {user_ip}] attempting to verify challenge with incorrect solution",
+                data.account_id
+            );
 
             return Err(ApiError::bad_request("challenge solution is incorrect"));
         }
@@ -249,6 +274,11 @@ pub async fn challenge_verify(
 
     // if we wanted to force strong integrity but failed, return an error
     if challenge.force_strong && !strong {
+        debug!(
+            "[{} @ {user_ip}] strong verification failed and forceStrong is enabled",
+            data.account_id
+        );
+
         return Err(ApiError::bad_request(
             "username validation failed, please try to refresh login in GD account settings",
         ));
@@ -306,6 +336,8 @@ pub async fn validation_check(
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if !state.rate_limiter.can_validate(user_ip) {
+        warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
+
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
 
@@ -347,6 +379,8 @@ pub async fn validation_check_strong(
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if !state.rate_limiter.can_validate(user_ip) {
+        warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
+
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
 

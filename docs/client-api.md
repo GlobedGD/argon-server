@@ -103,8 +103,10 @@ TODO
 
 Most, if not all of those limits can be configured, if you are hosting your own Argon instance. The limits on authtoken generation are:
 
-* Up to 5 different accounts in 1 hour from the same IP (only successful attempts count)
-* Up to 10 authtoken generation attempts in 1 hour from the same IP (only successful attempts count)
-* Up to 25 authtoken generation failures in 1 hour from the same IP
+* Up to 10 different accounts in 1 hour from the same IP (only successful attempts count)
+* Up to 20 generated tokens in 1 hour from the same IP
+* Up to 30 authtoken generation failures in 1 hour from the same IP
+* Up to 120 authtoken generation requests in 1 hour from the same IP
+* Spammy requests may get blocked even if no authtokens were ever generated
 
 Violating these limits may lead to a temporary or permanent block. Additionally, spamming messages to the bot on GD may get you blocked as well.
