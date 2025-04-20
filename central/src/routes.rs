@@ -162,11 +162,21 @@ async fn challenge_start(
     let id = match state.pick_id_for_message_challenge().await {
         Some(x) => x,
         None => {
+            warn!(
+                "[{} @ {}] Cannot create challenge, no available nodes",
+                data.account_id, user_ip
+            );
+
             return Err(ApiError::internal_server_error(
                 "no node is currently available to process this auth request",
             ));
         }
     };
+
+    debug!(
+        "[{} @ {}] Created challenge (method: {}, cid: {}, mod: {})",
+        data.account_id, user_ip, auth_method, challenge_id, data.req_mod
+    );
 
     Ok(GenericResponse::make(ChallengeStartResponse {
         challenge,
