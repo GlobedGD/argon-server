@@ -326,7 +326,7 @@ impl NodeHandler {
                     Err(err) => return Err(anyhow!("failed to parse messages: {err}")),
                 };
 
-                debug!(
+                trace!(
                     "[{}] received {} auth messages from node",
                     node.addr,
                     messages.len()

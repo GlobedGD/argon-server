@@ -317,14 +317,14 @@ pub async fn challenge_verify(
 
     if strong {
         info!(
-            "[{} @ {user_ip}] Created strong token for {} (took {})",
+            "[{} @ {user_ip}] Created strong token for {} (auth flow took {})",
             challenge.account_id,
             challenge.actual_username,
             format_duration(&challenge.started_at.elapsed().unwrap_or_default(), false)
         );
     } else {
         info!(
-            "[{} @ {user_ip}] Created *weak* token for {} (actual name: {}) (took {})",
+            "[{} @ {user_ip}] Created *weak* token for {} (actual name: {}) (auth flow took {})",
             challenge.account_id,
             challenge.username,
             challenge.actual_username,
