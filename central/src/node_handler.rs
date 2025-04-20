@@ -290,6 +290,8 @@ impl NodeHandler {
                 message = node.conn.receive_message() => {
                     let message = message?;
 
+                    trace!("[{}] received message from node, code: {:?}", node.addr, message.code);
+
                     match self.handle_node_message(&node, message).await {
                         Ok(()) => {},
                         Err(err) => warn!("[{}] error handling a message from the node: {err}", node.addr)
@@ -324,7 +326,11 @@ impl NodeHandler {
                     Err(err) => return Err(anyhow!("failed to parse messages: {err}")),
                 };
 
-                debug!("[{}] received {} messages from node", node.addr, messages.len());
+                debug!(
+                    "[{}] received {} auth messages from node",
+                    node.addr,
+                    messages.len()
+                );
 
                 // mark node as active
                 node.set_active(true);
