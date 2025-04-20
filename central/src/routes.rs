@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::{net::IpAddr, time::Duration};
 
 use argon_shared::logger::*;
 use rocket::{Route, State, get, post, routes, serde::json::Json};
@@ -59,6 +59,25 @@ impl<T: Serialize> GenericResponse<T> {
 }
 
 pub type ClientApiResult<T> = ApiResult<Json<GenericResponse<T>>>;
+
+fn format_duration(dur: &Duration, long: bool) -> String {
+    if dur.as_secs() > 60 * 60 * 24 {
+        let days = dur.as_secs_f64() / 60.0 / 60.0 / 24.0;
+        format!("{days:.1}{}", if long { " days" } else { "d" })
+    } else if dur.as_secs() > 60 * 60 {
+        let hrs = dur.as_secs_f64() / 60.0 / 60.0;
+        format!("{hrs:.1}{}", if long { " hours" } else { "h" })
+    } else if dur.as_secs() > 60 {
+        let mins = dur.as_secs_f64() / 60.0;
+        format!("{mins:.1}{}", if long { " minutes" } else { "m" })
+    } else if dur.as_secs() > 0 {
+        let secs = dur.as_secs_f64();
+        format!("{secs:.3}{}", if long { " seconds" } else { "s" })
+    } else {
+        let ms = dur.as_millis_f64();
+        format!("{ms:.3}{}", if long { " milliseconds" } else { "ms" })
+    }
+}
 
 /* Challenges */
 
@@ -286,6 +305,23 @@ pub async fn challenge_verify(
 
     let token = state.generate_authtoken(&challenge);
 
+    if strong {
+        info!(
+            "[{} @ {user_ip}] Created strong token for {} (took {})",
+            challenge.account_id,
+            challenge.actual_username,
+            format_duration(&challenge.started_at.elapsed().unwrap_or_default(), false)
+        );
+    } else {
+        info!(
+            "[{} @ {user_ip}] Created *weak* token for {} (actual name: {}) (took {})",
+            challenge.account_id,
+            challenge.username,
+            challenge.actual_username,
+            format_duration(&challenge.started_at.elapsed().unwrap_or_default(), false)
+        );
+    }
+
     Ok(GenericResponse::make(ChallengeVerifyResponse {
         verified: true,
         authtoken: Some(token),
@@ -344,23 +380,41 @@ pub async fn validation_check(
     let result = state.validate_authtoken(authtoken);
 
     Ok(match result {
-        Ok(data) if data.account_id == account_id => Json(ValidationResponse {
-            valid: true,
-            cause: None,
-        }),
+        Ok(data) if data.account_id == account_id => {
+            debug!(
+                "[{user_ip}] (Weak) token for {} ({account_id}) validated",
+                data.username
+            );
 
-        Ok(data) => Json(ValidationResponse {
-            valid: false,
-            cause: Some(format!(
-                "token was not generated for this account (account ID {}, but expected {})",
-                data.account_id, account_id
-            )),
-        }),
+            Json(ValidationResponse {
+                valid: true,
+                cause: None,
+            })
+        }
 
-        Err(err) => Json(ValidationResponse {
-            valid: false,
-            cause: Some(format!("validation failure: {err}")),
-        }),
+        Ok(data) => {
+            debug!(
+                "[{user_ip}] (Weak) token for {account_id} not valid, reason: mismatched account ID (token was for {})",
+                data.account_id
+            );
+
+            Json(ValidationResponse {
+                valid: false,
+                cause: Some(format!(
+                    "token was not generated for this account (account ID {}, but expected {})",
+                    data.account_id, account_id
+                )),
+            })
+        }
+
+        Err(err) => {
+            debug!("[{user_ip}] (Weak) token for {account_id} not valid, reason: {err:?}");
+
+            Json(ValidationResponse {
+                valid: false,
+                cause: Some(format!("validation failure: {err}")),
+            })
+        }
     })
 }
 
@@ -402,23 +456,41 @@ pub async fn validation_check_strong(
                 username: Some(data.username.clone()),
             };
 
+            let username = username.unwrap_or_default().trim();
+
             if account_id != data.account_id {
+                debug!(
+                    "[{user_ip}] (Strong) token for {account_id} not valid, reason: mismatched account ID (token was for {})",
+                    data.account_id
+                );
+
                 Json(_fail(format!(
                     "token was not generated for this account (account ID {}, but expected {})",
                     data.account_id, account_id
                 )))
             } else if user_id.is_some_and(|x| x != data.user_id) {
+                debug!(
+                    "[{user_ip}] (Strong) token for {account_id} not valid, reason: mismatched user ID (token was for {})",
+                    data.user_id
+                );
+
                 Json(_fail(format!(
                     "token was not generated for this account (user ID {}, but expected {})",
                     data.account_id, account_id
                 )))
-            } else if !username
-                .unwrap_or_default()
-                .trim()
-                .eq_ignore_ascii_case(data.username.trim())
-            {
+            } else if !username.eq_ignore_ascii_case(data.username.trim()) {
+                debug!(
+                    "[{user_ip}] (Strong) token for {account_id} weakly validated, reason: mismatched username (in token: '{}', from user: '{}'",
+                    data.username, username
+                );
+
                 Json(_fail_strong())
             } else {
+                debug!(
+                    "[{user_ip}] (Strong) token for {} ({account_id}) strongly validated",
+                    data.username
+                );
+
                 Json(StrongValidationResponse {
                     valid: true,
                     valid_weak: true,
