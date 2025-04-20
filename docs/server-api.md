@@ -1,10 +1,8 @@
 # Server-Side API
 
-This describes the API that should be used by the server of a mod that wants to integrate Argon. It includes authtoken validation, fetching minimal user data like user ID and username from account ID, and anonymous telemetry.
+This describes the API that should be used by the server of a mod that wants to integrate Argon. For now it includes endpoints for retrieving server status and validating authtokens, but more might come in future for developers.
 
 Requests to these endpoints don't *have* to have a specific user-agent, although it would be appreciated if you used something unique and something that would make it possible for us to know what mod your requests are for. For example `globed-server/1.0.0` is good, while `python-requests/2.32.0` is not. This way we could know who to contact in case there are issues.
-
-Some endpoints (namely telemetry) require authentication. To access those, you need a special developer token. If you are a mod developer and you want to access this data, reach out to me on Discord (`@dank_meme01`).
 
 # GET /v1/status
 
