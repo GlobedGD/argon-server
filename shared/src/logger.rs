@@ -53,7 +53,7 @@ impl Logger {
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        if metadata.target().starts_with(self.self_crate_name) {
+        if metadata.target().starts_with("argon_") {
             true
         } else {
             metadata.level() <= LogLevel::Warn

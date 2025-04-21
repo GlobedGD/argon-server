@@ -215,6 +215,11 @@ impl ServerStateData {
                     .trim()
                     .eq_ignore_ascii_case(challenge.username.trim());
 
+                trace!(
+                    "validated challenge for {} (strong: {})",
+                    challenge.account_id, challenge.validated_strong
+                );
+
                 break;
             }
         });

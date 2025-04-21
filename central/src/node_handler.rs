@@ -27,7 +27,8 @@ pub struct NodeHandler {
     listener: Option<TcpListener>,
     nodes: Mutex<Vec<Arc<Node>>>,
     // fields for the offline mode
-    ofm_active: bool,
+    ofm_active: AtomicBool,
+    ofm_id: AtomicI32,
 }
 
 pub struct Node {
@@ -142,7 +143,8 @@ impl NodeHandler {
             server_state: state,
             listener,
             nodes: Mutex::new(Vec::new()),
-            ofm_active: false,
+            ofm_active: AtomicBool::new(false),
+            ofm_id: AtomicI32::new(0),
         })
     }
 
@@ -161,17 +163,29 @@ impl NodeHandler {
     }
 
     pub async fn pick_challenge_account_id(&self) -> Option<i32> {
-        let nodes = self.nodes.lock().await;
+        match self.listener.as_ref() {
+            Some(_) => {
+                let nodes = self.nodes.lock().await;
 
-        // TODO: smarter load balancing logic
-        for node in &*nodes {
-            let id = node.used_account_id.load(Ordering::SeqCst);
-            if node.is_active() && id != -1 {
-                return Some(id);
+                // TODO: smarter load balancing logic
+                for node in &*nodes {
+                    let id = node.used_account_id.load(Ordering::SeqCst);
+                    if node.is_active() && id != -1 {
+                        return Some(id);
+                    }
+                }
+
+                None
+            }
+
+            None => {
+                if !self.ofm_active.load(Ordering::SeqCst) {
+                    None
+                } else {
+                    Some(self.ofm_id.load(Ordering::SeqCst))
+                }
             }
         }
-
-        None
     }
 
     async fn make_worker_config(&self, acc: &GDAccountCreds) -> WorkerConfiguration {
@@ -207,7 +221,11 @@ impl NodeHandler {
 
         if self.is_offline() {
             state.node_count = 1;
-            state.active_node_count = if self.ofm_active { 1 } else { 0 };
+            state.active_node_count = if self.ofm_active.load(Ordering::SeqCst) {
+                1
+            } else {
+                0
+            };
         } else {
             let nodes = self.nodes.lock().await;
             state.node_count = nodes.len();
@@ -573,19 +591,43 @@ impl NodeHandler {
             self.make_worker_config(&acc).await,
         ));
 
+        self.ofm_id.store(acc.id, Ordering::SeqCst);
+
         let worker_clone = worker.clone();
         tokio::spawn(async move {
             match worker_clone.run_loop().await {
                 Ok(()) => unreachable!("worker loop should never terminate"),
+
                 Err(err) => {
                     warn!("Standalone node worker loop terminated: {err}");
                 }
             }
         });
 
+        trace!("Starting receive message loop (non-distributed mode)");
+
+        let mut last_received = Instant::now();
+
         loop {
+            // if no messages were successfully received in 30 seconds, mark us as inactive
+            if last_received.elapsed() > Duration::from_secs(30) {
+                self.ofm_active.store(false, Ordering::SeqCst);
+            }
+
             // just receive messages from the node..
-            let messages = worker.receive_channel_messages().await?;
+            let messages =
+                match tokio::time::timeout(Duration::from_secs(5), worker.receive_channel_messages()).await {
+                    Ok(Ok(messages)) => messages,
+                    Ok(Err(err)) => return Err(err),
+                    Err(_) => continue,
+                };
+
+            // mark as active if we got any kind of response
+            self.ofm_active.store(true, Ordering::SeqCst);
+            last_received = Instant::now();
+
+            self.update_node_counter().await;
+
             self.handle_auth_messages(messages).await;
         }
     }
