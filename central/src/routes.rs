@@ -486,7 +486,8 @@ pub async fn validation_check_strong(
 
                 Json(_fail(format!(
                     "token was not generated for this account (user ID {}, but expected {})",
-                    data.account_id, account_id
+                    data.user_id,
+                    user_id.unwrap()
                 )))
             } else if !username.eq_ignore_ascii_case(data.username.trim()) {
                 debug!(
