@@ -1,6 +1,10 @@
 # Client-Side API
 
-This describes the API used by the client side of Argon. You should not need this if you are a mod developer looking to integrate Argon. Instead you might be looking for [the C++ api](https://github.com/GlobedGD/argon) and [the server-side api](./server-api.md)
+## Note ⚠️
+
+This describes the API used by the client side of Argon. You should **not** need this if you are a mod developer looking to integrate Argon. Instead you might be looking for [the C++ API](https://github.com/GlobedGD/argon) and [the server-side API](./server-api.md)
+
+-------
 
 The base URL for our instance is https://argon.globed.dev
 

@@ -4,6 +4,8 @@ This describes the API that should be used by the server of a mod that wants to 
 
 Requests to these endpoints don't *have* to have a specific user-agent, although it would be appreciated if you used something unique and something that would make it possible for us to know what mod your requests are for. For example `globed-server/1.0.0` is good, while `python-requests/2.32.0` is not. This way we could know who to contact in case there are issues.
 
+All endpoints here respond with status code 200 and a JSON object, unless critical errors happened or you are rate limited. You should **always** check the status code of the request - if it's not 200 then the data is not a JSON object and could be an error message.
+
 # GET /v1/status
 
 Checks whether the server is up and running.
@@ -26,7 +28,7 @@ Parameters are expeceted to be passed as a query string, aka `/v1/validation/che
 * `account_id` - integer, ID of user's Geometry Dash account
 * `authtoken` - string, the authtoken supplied by the user
 
-If the status code is 200 (OK), the response is a JSON object, with keys:
+The response is a JSON object, with keys:
 
 * `valid` - boolean, whether this token is valid and matches the supplied account ID
 * `cause` - string, **only present if `valid` is `false`**, describes why exactly the token validation failed
@@ -46,7 +48,7 @@ Parameters are expeceted to be passed as a query string, aka `/v1/validation/che
 * `username` - string (optional), the username of the account, if empty then `valid` will **always** be false
 * `authtoken` - string, the authtoken supplied by the user
 
-If the status code is 200 (OK), the response is a JSON object, with keys:
+The response is a JSON object, with keys:
 
 * `valid` - boolean, whether this token is valid and matches all the fields supplied
 * `valid_weak` - boolean, whether this token is valid and matches **at least** the supplied account ID. Always `true` if `valid` is `true`
