@@ -2,6 +2,8 @@
 
 This describes the API that should be used by the server of a mod that wants to integrate Argon. For now it includes endpoints for retrieving server status and validating authtokens, but more might come in future for developers.
 
+For a quick example on how to correctly do auth, check the [Argon README](https://github.com/GlobedGD/argon), this document describes some exact details about the API.
+
 Requests to these endpoints don't *have* to have a specific user-agent, although it would be appreciated if you used something unique and something that would make it possible for us to know what mod your requests are for. For example `globed-server/1.0.0` is good, while `python-requests/2.32.0` is not. This way we could know who to contact in case there are issues.
 
 All endpoints here respond with status code 200 and a JSON object, unless critical errors happened or you are rate limited. You should **always** check the status code of the request - if it's not 200 then the data is not a JSON object and could be an error message.
