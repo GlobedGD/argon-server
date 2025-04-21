@@ -23,7 +23,7 @@ Checks whether an authtoken is valid and matches the given account ID.
 
 **Note: if you also want to validate/retrieve the user's account name without making additional requests to the GD server, you can use the [check_strong](#get-v1validationcheck_strong) endpoint!**
 
-Parameters are expeceted to be passed as a query string, aka `/v1/validation/check?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
+Parameters are expected to be passed as a query string, aka `/v1/validation/check?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
 
 * `account_id` - integer, ID of user's Geometry Dash account
 * `authtoken` - string, the authtoken supplied by the user
@@ -41,7 +41,7 @@ Upon a validation failure, it is recommended to make the user regenerate the aut
 
 Checks whether an authtoken is valid and matches the given account ID, user ID and username that are sent by the user.
 
-Parameters are expeceted to be passed as a query string, aka `/v1/validation/check_strong?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
+Parameters are expected to be passed as a query string, aka `/v1/validation/check_strong?arg1=x&arg2=y&arg3=z`. The parameters for this endpoint are:
 
 * `account_id` - integer, ID of user's Geometry Dash account
 * `user_id` - integer (optional), user ID of user's Geometry Dash account, recommended to pass this, but if not passed then it won't be checked
