@@ -490,7 +490,7 @@ pub async fn validation_check_strong(
                 )))
             } else if !username.eq_ignore_ascii_case(data.username.trim()) {
                 debug!(
-                    "[{user_ip}] (Strong) token for {account_id} weakly validated, reason: mismatched username (in token: '{}', from user: '{}'",
+                    "[{user_ip}] (Strong) token for {account_id} weakly validated, reason: mismatched username (in token: '{}', from user: '{}')",
                     data.username, username
                 );
 
