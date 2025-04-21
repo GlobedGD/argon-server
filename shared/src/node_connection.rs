@@ -328,9 +328,13 @@ impl NodeConnection {
         buffer[4..full_buf_size].copy_from_slice(data);
 
         let mut stream = self.stream_write.lock().await;
-        stream.write_all(&buffer[..full_buf_size]).await?;
 
-        Ok(())
+        match tokio::time::timeout(Duration::from_secs(5), stream.write_all(&buffer[..full_buf_size])).await {
+            Ok(res) => Ok(res?),
+            Err(_) => Err(SendError::Socket(std::io::Error::from(
+                std::io::ErrorKind::TimedOut,
+            ))),
+        }
     }
 
     /// Blocks until data is available

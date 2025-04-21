@@ -15,13 +15,13 @@ cargo build # or cargo build --release
 
 Running the executable will cause a `Rocket.toml` and `config.json` files to be generated in the current working directory, there you can adjust various settings.
 
-Accounts should be added like so:
+Bot accounts that will be used for authentication should be added like so:
 
 ```json
 "accounts": [
     {
         "id": 29843187,
-        "gjp": "your gjp"
+        "gjp": "your gjp2"
     }
 ]
 ```

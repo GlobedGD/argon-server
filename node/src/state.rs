@@ -118,6 +118,8 @@ impl NodeState {
                             worker_config.account_gjp.clone(),
                             worker_config.base_url.clone(),
                         );
+
+                        worker.on_config_changed();
                     }
                 }
 

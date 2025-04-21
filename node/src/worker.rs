@@ -145,6 +145,16 @@ impl Worker {
             interval.tick().await;
 
             let gd_client = self.gd_client.lock().await;
+            if !gd_client.has_account() {
+                // just keep pinging to keep the connection alive
+                trace!("no account configured, just pinging the central server");
+
+                if let Some(central) = self.central.as_ref() {
+                    central.send_message_code(MessageCode::Ping).await?;
+                }
+
+                continue;
+            }
 
             match self.fetch_messages(&gd_client, self.central.as_ref()).await {
                 Ok(messages) => {
@@ -346,5 +356,11 @@ impl Worker {
             .recv()
             .await
             .ok_or(anyhow!("mpsc channel closed"))
+    }
+
+    pub fn on_config_changed(&self) {
+        self.failcount.store(0, Ordering::SeqCst);
+        self.history.lock().clear();
+        self.to_delete.lock().clear();
     }
 }

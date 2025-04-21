@@ -108,6 +108,10 @@ impl GDClient {
         *config = ClientConfig::new(account_id, account_gjp, base_url);
     }
 
+    pub fn has_account(&self) -> bool {
+        self.config.lock().account_id > 0
+    }
+
     pub async fn fetch_messages(&self) -> Result<Vec<GDMessage>, GDClientError> {
         let req = {
             let config = self.config.lock();

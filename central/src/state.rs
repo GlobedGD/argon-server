@@ -1,13 +1,10 @@
 use std::{
-    collections::HashMap,
     fmt::Display,
-    net::IpAddr,
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime},
 };
 
-use anyhow::bail;
 use argon_shared::{WorkerAuthMessage, logger::*};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::{ByteBuffer, ByteReader};
