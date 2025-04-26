@@ -282,8 +282,8 @@ impl NodeHandler {
                         terminate = true;
                     }
                 }
-                // if nothing received in 90 seconds, terminate the node
-                else if node.since_received_anything() > Duration::from_secs(90) {
+                // if nothing received in 60 seconds, terminate the node
+                else if node.since_received_anything() > Duration::from_secs(60) {
                     // if we already sent a close packet and got no response, just hard terminate it
                     if node.sent_close.load(Ordering::SeqCst) {
                         warn!(
@@ -297,6 +297,8 @@ impl NodeHandler {
                             node.addr
                         );
                         terminate = true;
+                    } else {
+                        node.sent_close.store(true, Ordering::SeqCst);
                     }
 
                     // otherwise, we just wait for a CloseAck from the node and hopefully terminate gracefully

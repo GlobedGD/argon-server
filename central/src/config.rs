@@ -37,7 +37,11 @@ fn default_password() -> String {
         .collect()
 }
 
-fn default_secret_key() -> String {
+fn default_string() -> String {
+    String::new()
+}
+
+fn gen_secret_key() -> String {
     hex::encode(generate_keypair().0.to_bytes())
 }
 
@@ -61,7 +65,7 @@ pub struct ServerConfig {
     pub handler_address: String,
     #[serde(default = "default_password")]
     pub password: String,
-    #[serde(default = "default_secret_key")]
+    #[serde(default = "default_string")]
     pub secret_key: String,
     #[serde(default = "default_false")]
     pub cloudflare_protection: bool,
@@ -71,8 +75,9 @@ impl ServerConfig {
     pub fn load(source: &Path) -> anyhow::Result<Self> {
         let file = File::open(source)?;
         let stripped = StripComments::new(file);
+        let config: ServerConfig = serde_json::from_reader(stripped)?;
 
-        Ok(serde_json::from_reader(stripped)?)
+        Ok(config)
     }
 
     pub fn save(&self, dest: &Path) -> anyhow::Result<()> {
@@ -99,6 +104,9 @@ impl ServerConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        serde_json::from_str("{}").unwrap()
+        let mut val: ServerConfig = serde_json::from_str("{}").unwrap();
+        val.secret_key = gen_secret_key();
+
+        val
     }
 }
