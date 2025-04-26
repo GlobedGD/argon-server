@@ -22,7 +22,7 @@ use argon_shared::{
 use parking_lot::Mutex;
 use serde_json::json;
 
-pub const AMOUNT_TO_DELETE: usize = 500;
+pub const AMOUNT_TO_DELETE: usize = 250; // technically it doesn't seem to be limited but we delete them more often just in case
 
 pub struct ToDeleteMessage {
     pub fetched_at: SystemTime,
@@ -173,6 +173,8 @@ impl Worker {
 
             // process which messages need to be deleted
             let to_delete = self.queue_messages_for_deletion();
+            trace!("total messages waiting to be deleted: {to_delete}");
+
             if to_delete >= AMOUNT_TO_DELETE {
                 // delete the messages
                 if let Err(err) = self.delete_messages(&gd_client).await {
@@ -236,6 +238,8 @@ impl Worker {
                 }
             });
         }
+
+        trace!("Deleting messages: {message_vec:?}");
 
         match client.delete_messages(&message_vec).await {
             Ok(()) => info!("Deleted {} messages", message_vec.len()),

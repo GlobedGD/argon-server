@@ -14,7 +14,6 @@ pub use log::{Level as LogLevel, LevelFilter as LogLevelFilter, Log, debug, erro
 
 pub struct Logger {
     pub format_desc: Vec<format_description::FormatItem<'static>>,
-    self_crate_name: &'static str,
     file_writer: Option<SyncMutex<BufWriter<File>>>,
 }
 
@@ -27,7 +26,6 @@ impl Logger {
         static INSTANCE: OnceLock<Logger> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {
             format_desc: format_description::parse_borrowed::<2>(TIME_FORMAT).unwrap(),
-            self_crate_name,
             file_writer: if write_to_file {
                 let file = File::create(
                     std::env::current_dir()

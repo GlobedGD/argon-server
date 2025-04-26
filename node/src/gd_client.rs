@@ -155,6 +155,10 @@ impl GDClient {
         let mut output = Vec::new();
 
         for message_str in response.split('|') {
+            if message_str.is_empty() {
+                continue;
+            }
+
             let message = message_str.parse::<GDMessage>();
 
             match message {

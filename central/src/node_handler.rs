@@ -392,7 +392,7 @@ impl NodeHandler {
         loop {
             let (socket, address) = listener.accept().await?;
 
-            debug!("handling connection from {address}");
+            debug!("[{address}] handling incoming node connection");
 
             // handle this connection in another task, so that we don't make other incoming connections wait
             let state = self.server_state.clone();
