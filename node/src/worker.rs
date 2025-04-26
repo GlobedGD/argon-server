@@ -22,7 +22,7 @@ use argon_shared::{
 use parking_lot::Mutex;
 use serde_json::json;
 
-pub const AMOUNT_TO_DELETE: usize = 250; // technically it doesn't seem to be limited but we delete them more often just in case
+pub const AMOUNT_TO_DELETE: usize = 500; // technically it doesn't seem to be limited but we delete them more often just in case
 
 pub struct ToDeleteMessage {
     pub fetched_at: SystemTime,
