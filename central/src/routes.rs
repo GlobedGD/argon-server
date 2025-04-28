@@ -18,16 +18,21 @@ pub struct StatusResponse {
     pub ident: String,
 }
 
-#[get("/status")]
-pub async fn status(state: &State<ServerState>) -> Json<StatusResponse> {
+#[get("/status?<errorifdead>")]
+pub async fn status(state: &State<ServerState>, errorifdead: Option<i32>) -> ApiResult<Json<StatusResponse>> {
     let state = state.state_read().await;
 
-    Json(StatusResponse {
+    // if errorifdead is set and there are no active nodes, send an error instead
+    if errorifdead.unwrap_or(0) != 0 && state.active_node_count == 0 {
+        return Err(ApiError::not_acceptable(""));
+    }
+
+    Ok(Json(StatusResponse {
         total_nodes: state.node_count,
         active_nodes: state.active_node_count,
         active: state.active_node_count > 0,
         ident: state.server_ident.clone(),
-    })
+    }))
 }
 
 /* Helper types for client endpoints */
