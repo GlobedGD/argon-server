@@ -5,7 +5,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome},
 };
-use std::net::IpAddr;
+use std::{net::IpAddr, time::Duration};
 
 use crate::{
     api_error::{ApiError, ApiResult},
@@ -51,4 +51,31 @@ pub fn check_ip(ip: IpAddr, cfip: &CloudflareIPGuard, cloudflare: bool) -> ApiRe
         Ok(x) => Ok(x),
         Err(err) => Err(ApiError::bad_request(err.to_string())),
     }
+}
+
+pub fn format_duration(dur: &Duration, long: bool) -> String {
+    if dur.as_secs() > 60 * 60 * 24 {
+        let days = dur.as_secs_f64() / 60.0 / 60.0 / 24.0;
+        format!("{days:.1}{}", if long { " days" } else { "d" })
+    } else if dur.as_secs() > 60 * 60 {
+        let hrs = dur.as_secs_f64() / 60.0 / 60.0;
+        format!("{hrs:.1}{}", if long { " hours" } else { "h" })
+    } else if dur.as_secs() > 60 {
+        let mins = dur.as_secs_f64() / 60.0;
+        format!("{mins:.1}{}", if long { " minutes" } else { "m" })
+    } else if dur.as_secs() > 0 {
+        let secs = dur.as_secs_f64();
+        format!("{secs:.3}{}", if long { " seconds" } else { "s" })
+    } else {
+        let ms = dur.as_millis_f64();
+        format!("{ms:.3}{}", if long { " milliseconds" } else { "ms" })
+    }
+}
+
+pub fn default_false() -> bool {
+    false
+}
+
+pub fn default_empty_string() -> String {
+    String::new()
 }

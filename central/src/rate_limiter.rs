@@ -45,6 +45,10 @@ impl RateLimiter {
         true
     }
 
+    pub fn can_validate_n(&self, count: usize, _user_ip: IpAddr) -> bool {
+        true
+    }
+
     pub fn record_challenge_start(&mut self, user_ip: IpAddr, account_id: i32) {
         let ent = self.cache_map.entry(user_ip).or_default();
 

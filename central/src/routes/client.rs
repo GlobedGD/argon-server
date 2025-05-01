@@ -1,7 +1,7 @@
-use std::{net::IpAddr, time::Duration};
+use std::net::IpAddr;
 
 use argon_shared::logger::*;
-use rocket::{Route, State, get, post, routes, serde::json::Json};
+use rocket::{State, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -10,29 +10,8 @@ use crate::{
     state::{ChallengeValidationError, ServerState},
 };
 
-#[derive(Serialize)]
-pub struct StatusResponse {
-    pub active: bool,
-    pub total_nodes: usize,
-    pub active_nodes: usize,
-    pub ident: String,
-}
-
-#[get("/status?<errorifdead>")]
-pub async fn status(state: &State<ServerState>, errorifdead: Option<i32>) -> ApiResult<Json<StatusResponse>> {
-    let state = state.state_read().await;
-
-    // if errorifdead is set and there are no active nodes, send an error instead
-    if errorifdead.unwrap_or(0) != 0 && state.active_node_count == 0 {
-        return Err(ApiError::not_acceptable(""));
-    }
-
-    Ok(Json(StatusResponse {
-        total_nodes: state.node_count,
-        active_nodes: state.active_node_count,
-        active: state.active_node_count > 0,
-        ident: state.server_ident.clone(),
-    }))
+pub fn default_preferred_auth_method() -> String {
+    "message".to_owned()
 }
 
 /* Helper types for client endpoints */
@@ -65,41 +44,8 @@ impl<T: Serialize> GenericResponse<T> {
 
 pub type ClientApiResult<T> = ApiResult<Json<GenericResponse<T>>>;
 
-fn format_duration(dur: &Duration, long: bool) -> String {
-    if dur.as_secs() > 60 * 60 * 24 {
-        let days = dur.as_secs_f64() / 60.0 / 60.0 / 24.0;
-        format!("{days:.1}{}", if long { " days" } else { "d" })
-    } else if dur.as_secs() > 60 * 60 {
-        let hrs = dur.as_secs_f64() / 60.0 / 60.0;
-        format!("{hrs:.1}{}", if long { " hours" } else { "h" })
-    } else if dur.as_secs() > 60 {
-        let mins = dur.as_secs_f64() / 60.0;
-        format!("{mins:.1}{}", if long { " minutes" } else { "m" })
-    } else if dur.as_secs() > 0 {
-        let secs = dur.as_secs_f64();
-        format!("{secs:.3}{}", if long { " seconds" } else { "s" })
-    } else {
-        let ms = dur.as_millis_f64();
-        format!("{ms:.3}{}", if long { " milliseconds" } else { "ms" })
-    }
-}
-
-/* Challenges */
-
-fn default_false() -> bool {
-    false
-}
-
-fn default_empty_string() -> String {
-    String::new()
-}
-
-fn default_preferred_auth_method() -> String {
-    "message".to_owned()
-}
-
 #[derive(Deserialize)]
-struct ChallengeStartData {
+pub struct ChallengeStartData {
     #[serde(rename = "accountId")]
     pub account_id: i32,
     #[serde(rename = "userId")]
@@ -124,7 +70,7 @@ pub struct ChallengeStartResponse {
 }
 
 #[post("/challenge/start", data = "<data>")]
-async fn challenge_start(
+pub async fn challenge_start(
     state: &State<ServerState>,
     data: Json<ChallengeStartData>,
     ip: IpAddr,
@@ -193,7 +139,7 @@ async fn challenge_start(
 }
 
 #[post("/challenge/restart", data = "<data>")]
-async fn challenge_restart(
+pub async fn challenge_restart(
     state: &State<ServerState>,
     data: Json<ChallengeStartData>,
     ip: IpAddr,
@@ -353,191 +299,4 @@ pub async fn challenge_verify_poll(
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
     challenge_verify(state, data, ip, cfip).await
-}
-
-/* Validation */
-
-#[derive(Serialize)]
-pub struct ValidationResponse {
-    pub valid: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct StrongValidationResponse {
-    pub valid: bool,
-    pub valid_weak: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cause: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-}
-
-#[get("/validation/check?<account_id>&<authtoken>")]
-pub async fn validation_check(
-    state: &State<ServerState>,
-    account_id: i32,
-    authtoken: &str,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
-) -> ApiResult<Json<ValidationResponse>> {
-    let state = state.state_read().await;
-
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
-
-    if !state.rate_limiter.can_validate(user_ip) {
-        warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
-
-        return Err(ApiError::too_many_requests("rate limit exceeded"));
-    }
-
-    let result = state.validate_authtoken(authtoken);
-
-    Ok(match result {
-        Ok(data) if data.account_id == account_id => {
-            debug!(
-                "[{user_ip}] (Weak) token for {} ({account_id}) validated",
-                data.username
-            );
-
-            Json(ValidationResponse {
-                valid: true,
-                cause: None,
-            })
-        }
-
-        Ok(data) => {
-            debug!(
-                "[{user_ip}] (Weak) token for {account_id} not valid, reason: mismatched account ID (token was for {})",
-                data.account_id
-            );
-
-            Json(ValidationResponse {
-                valid: false,
-                cause: Some(format!(
-                    "token was not generated for this account (account ID {}, but expected {})",
-                    data.account_id, account_id
-                )),
-            })
-        }
-
-        Err(err) => {
-            debug!("[{user_ip}] (Weak) token for {account_id} not valid, reason: {err:?}");
-
-            Json(ValidationResponse {
-                valid: false,
-                cause: Some(format!("validation failure: {err}")),
-            })
-        }
-    })
-}
-
-#[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
-pub async fn validation_check_strong(
-    state: &State<ServerState>,
-    account_id: i32,
-    user_id: Option<i32>,
-    username: Option<&str>,
-    authtoken: &str,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
-) -> ApiResult<Json<StrongValidationResponse>> {
-    let state = state.state_read().await;
-
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
-
-    if !state.rate_limiter.can_validate(user_ip) {
-        warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
-
-        return Err(ApiError::too_many_requests("rate limit exceeded"));
-    }
-
-    let result = state.validate_authtoken(authtoken);
-
-    Ok(match result {
-        Ok(data) => {
-            let _fail = |msg| StrongValidationResponse {
-                valid: false,
-                valid_weak: false,
-                cause: Some(msg),
-                username: None,
-            };
-
-            let _fail_strong = || StrongValidationResponse {
-                valid: false,
-                valid_weak: true,
-                cause: None,
-                username: Some(data.username.clone()),
-            };
-
-            let username = username.unwrap_or_default().trim();
-
-            if account_id != data.account_id {
-                debug!(
-                    "[{user_ip}] (Strong) token for {account_id} not valid, reason: mismatched account ID (token was for {})",
-                    data.account_id
-                );
-
-                Json(_fail(format!(
-                    "token was not generated for this account (account ID {}, but expected {})",
-                    data.account_id, account_id
-                )))
-            } else if user_id.is_some_and(|x| x != data.user_id) {
-                debug!(
-                    "[{user_ip}] (Strong) token for {account_id} not valid, reason: mismatched user ID (token was for {})",
-                    data.user_id
-                );
-
-                Json(_fail(format!(
-                    "token was not generated for this account (user ID {}, but expected {})",
-                    data.user_id,
-                    user_id.unwrap()
-                )))
-            } else if !username.eq_ignore_ascii_case(data.username.trim()) {
-                debug!(
-                    "[{user_ip}] (Strong) token for {account_id} weakly validated, reason: mismatched username (in token: '{}', from user: '{}')",
-                    data.username, username
-                );
-
-                Json(_fail_strong())
-            } else {
-                debug!(
-                    "[{user_ip}] (Strong) token for {} ({account_id}) strongly validated",
-                    data.username
-                );
-
-                Json(StrongValidationResponse {
-                    valid: true,
-                    valid_weak: true,
-                    cause: None,
-                    username: Some(data.username.clone()),
-                })
-            }
-        }
-
-        Err(err) => Json(StrongValidationResponse {
-            valid: false,
-            valid_weak: false,
-            cause: Some(format!("validation failure: {err}")),
-            username: None,
-        }),
-    })
-}
-
-#[get("/")]
-pub async fn index() -> &'static str {
-    "There is nothing interesting here. Not yet, at least."
-}
-
-pub fn build_routes() -> Vec<Route> {
-    routes![
-        status,
-        challenge_start,
-        challenge_restart,
-        challenge_verify,
-        challenge_verify_poll,
-        validation_check,
-        validation_check_strong
-    ]
 }
