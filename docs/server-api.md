@@ -39,6 +39,44 @@ The response is a JSON object, with keys:
 
 Upon a validation failure, it is recommended to make the user regenerate the authtoken.
 
+# POST /v1/validation/many/check
+
+Same as `/v1/validation/check` but allows for checking up to 50 accounts at once. The body must be a JSON object, with the following format:
+
+```json
+{
+    "users": [
+        {
+            "id": 12345,
+            "token": "abcdefg"
+        },
+        {
+            "id": 54321,
+            "token": "gfedcba"
+        }
+    ]
+}
+```
+
+The response is a JSON object, with the following format:
+
+```json
+{
+    "users": {
+        "12345": {
+            "valid": true
+        },
+
+        "54321": {
+            "valid": false,
+            "cause": "invalid token"
+        }
+    }
+}
+```
+
+Same rules apply to each object in the response as in `/v1/validation/check` - specifically `cause` is only present if `valid` is `false`.
+
 # GET /v1/validation/check_strong
 
 Checks whether an authtoken is valid and matches the given account ID, user ID and username that are sent by the user.
@@ -83,3 +121,46 @@ In short, as a mod developer if `valid` returns `false` while `valid_weak` retur
 * If the user changes their name but does not refresh their login, there is now a mismatch between what their game thinks their name is, and what the GD servers think. If the user does the name change **before** creating an authtoken, then a weak one will be created, and `valid` will return `false` during validation. If the user does the name change **after** they have created an authtoken, then strong validation will succeed fine, but the returned username will **NOT** match their actual new username.
 
 * If the username has inconsistent casing, for example it is DankMeme01 on the GD servers but dankmeme01 in their game (which is totally valid), Argon will still consider them the same and set `valid` to `true`. This is why it's recommended that you use the username returned in the response instead of the one given by the user, even if strong validation succeeds. Additionally make sure to trim and convert your usernames to lowercase if you are going to be comparing them :)
+
+# POST /v1/validation/many/check_strong
+
+Same as `/v1/validation/check_strong` but allows for checking up to 50 accounts at once. The body must be a JSON object, with the following format:
+
+```json
+{
+    "users": [
+        {
+            "id": 12345,
+            "token": "abcdefg"
+        },
+        {
+            "id": 54321,
+            "user_id": 123154135,
+            "name": "amongus",
+            "token": "gfedcba"
+        }
+    ]
+}
+```
+
+Just like `/v1/validation/check_strong`, `user_id` and `name` can be omitted in each object.
+
+The response is a JSON object, with the following format:
+
+```json
+{
+    "users": {
+        "12345": {
+            "valid": true,
+            "valid_weak": true,
+            "username": "foo"
+        },
+
+        "54321": {
+            "valid": false,
+            "valid_weak": false,
+            "cause": "invalid token"
+        }
+    }
+}
+```
