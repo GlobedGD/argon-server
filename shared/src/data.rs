@@ -12,19 +12,27 @@ pub enum MessageCode {
     CloseAck = 4,
 
     // Messages sent by the node
-    NodeHandshake = 1000,      // data: client's public key (string)
+    NodeHandshake = 1000,      // data: NodeHandshakeData
     NodeStartup = 1001,        // data: password (string)
     NodeReportError = 1020,    // data: error message (string)
     NodeReportMessages = 1021, // data: Vec<WorkerAuthMessage>
 
     // Messages sent by the central server
-    HandshakeResponse = 2000, // data: server's public key (string)
+    HandshakeResponse = 2000, // data: ServerHandshakeResponse
     StartupConfig = 2001,     // data: WorkerConfiguration
     StartupAbort = 2002,      // data: error message (string)
     RefreshConfig = 2010,     // data: WorkerConfiguration
 }
 
-// #[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NodeHandshakeData {
+    pub key: String, // public key of the node
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerHandshakeResponse {
+    pub key: String, // public key of the server
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorkerConfiguration {

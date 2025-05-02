@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     fmt::Display,
+    io::Cursor,
     net::SocketAddr,
     string::FromUtf8Error,
     sync::atomic::{AtomicBool, Ordering},
@@ -19,7 +20,7 @@ use tokio::{
 };
 
 use crate::{
-    CryptoBoxError,
+    CryptoBoxError, NodeHandshakeData, ServerHandshakeResponse,
     crypto::{CryptoBox, generate_keypair},
     data::MessageCode,
     parse_pubkey,
@@ -32,6 +33,7 @@ pub enum SendError {
     Closed,
     Encode(serde_json::Error),
     Socket(std::io::Error),
+    Compression(std::io::Error),
     Encryption(CryptoBoxError),
 }
 
@@ -59,6 +61,7 @@ impl Display for SendError {
             Self::Closed => write!(f, "connection has already been closed"),
             Self::Encode(err) => write!(f, "failed to encode payload: {err}"),
             Self::Socket(err) => write!(f, "IO error during sending data: {err}"),
+            Self::Compression(err) => write!(f, "IO error during compressing data: {err}"),
             Self::Encryption(err) => write!(f, "encryption error: {err}"),
         }
     }
@@ -75,6 +78,7 @@ pub enum ReceiveError {
     Closed,
     Decode(serde_json::Error),
     Socket(std::io::Error),
+    Compression(std::io::Error),
     InvalidStructure,
     InvalidMessageCode,
     Encryption(CryptoBoxError),
@@ -111,6 +115,7 @@ impl Display for ReceiveError {
             Self::Closed => write!(f, "connection has already been closed"),
             Self::Decode(err) => write!(f, "failed to decode payload: {err}"),
             Self::Socket(err) => write!(f, "IO error during receiving data: {err}"),
+            Self::Compression(err) => write!(f, "IO error during decompressing data: {err}"),
             Self::InvalidStructure => write!(f, "invalid message structure was received"),
             Self::InvalidMessageCode => write!(f, "invalid message code was received"),
             Self::Encryption(err) => write!(f, "encryption error: {err}"),
@@ -135,6 +140,7 @@ pub enum HandshakeError {
     Send(SendError),
     Receive(ReceiveError),
     UnexpectedMessage,
+    InvalidData,
     InvalidPubkey,
 }
 
@@ -159,6 +165,7 @@ impl Display for HandshakeError {
                 f,
                 "unexpected message arrived when waiting for handshake response"
             ),
+            Self::InvalidData => write!(f, "server sent invalid data"),
             Self::InvalidPubkey => write!(f, "server sent an invalid public key"),
         }
     }
@@ -217,7 +224,8 @@ impl NodeConnection {
 
         let pubkey = hex::encode(public_key.to_bytes());
 
-        self.send_message(MessageCode::NodeHandshake, &pubkey).await?;
+        self.send_message(MessageCode::NodeHandshake, &NodeHandshakeData { key: pubkey })
+            .await?;
 
         let msg = self.receive_message().await?;
 
@@ -225,10 +233,10 @@ impl NodeConnection {
             return Err(HandshakeError::UnexpectedMessage);
         }
 
-        let server_pubkey = match msg.data.as_str() {
-            Some(x) => parse_pubkey(x).ok_or(HandshakeError::InvalidPubkey),
-            None => Err(HandshakeError::InvalidPubkey),
-        }?;
+        let server_conf = serde_json::from_value::<ServerHandshakeResponse>(msg.data)
+            .map_err(|_| HandshakeError::InvalidData)?;
+
+        let server_pubkey = parse_pubkey(&server_conf.key).ok_or(HandshakeError::InvalidPubkey)?;
 
         let crypto_box = CryptoBox::new_shared(&server_pubkey, &secret_key);
 
@@ -248,15 +256,17 @@ impl NodeConnection {
             return Err(HandshakeError::UnexpectedMessage);
         }
 
-        let node_pubkey = match msg.data.as_str() {
-            Some(x) => parse_pubkey(x).ok_or(HandshakeError::InvalidPubkey),
-            None => Err(HandshakeError::InvalidPubkey),
-        }?;
+        let node_conf = serde_json::from_value::<ServerHandshakeResponse>(msg.data)
+            .map_err(|_| HandshakeError::InvalidData)?;
+
+        let node_pubkey = parse_pubkey(&node_conf.key).ok_or(HandshakeError::InvalidPubkey)?;
 
         // send them our pubkey
         self.send_message(
             MessageCode::HandshakeResponse,
-            &hex::encode(public_key.to_bytes()),
+            &ServerHandshakeResponse {
+                key: hex::encode(public_key.to_bytes()),
+            },
         )
         .await?;
 
@@ -305,11 +315,14 @@ impl NodeConnection {
 
         let crypto_box = self.crypto_box.lock().await;
 
-        // if we have already performed the handshake, we should encrypt this data
-        let encrypted_vec: Vec<u8>;
+        // if we have already performed the handshake, we should compress & encrypt this data
+        let mut encrypted_vec = Vec::new();
+
         let data = match crypto_box.as_ref() {
             Some(crypto_box) => {
-                encrypted_vec = crypto_box.encrypt(data)?;
+                zstd::stream::copy_encode(data, &mut encrypted_vec, 0).map_err(SendError::Compression)?;
+
+                encrypted_vec = crypto_box.encrypt(&encrypted_vec)?;
                 &encrypted_vec[..]
             }
 
@@ -389,7 +402,12 @@ impl NodeConnection {
         let json_string = match crypto_box.as_ref() {
             Some(crypto_box) => {
                 let dec_vec = crypto_box.decrypt(&buffer[..length])?;
-                String::from_utf8(dec_vec)
+                let mut out_vec = Vec::new();
+
+                zstd::stream::copy_decode(Cursor::new(dec_vec), &mut out_vec)
+                    .map_err(ReceiveError::Compression)?;
+
+                String::from_utf8(out_vec)
             }
 
             None => String::from_utf8(buffer[..length].to_owned()),
