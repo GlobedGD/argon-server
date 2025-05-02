@@ -6,7 +6,18 @@ For a quick example on how to correctly do auth, check the [Argon README](https:
 
 Requests to these endpoints don't *have* to have a specific user-agent, although it would be appreciated if you used something unique and something that would make it possible for us to know what mod your requests are for. For example `globed-server/1.0.0` is good, while `python-requests/2.32.0` is not. This way we could know who to contact in case there are issues.
 
-All endpoints here respond with status code 200 and a JSON object, unless critical errors happened or you are rate limited. You should **always** check the status code of the request - if it's not 200 then the data is not a JSON object and could be an error message.
+All endpoints here respond with status code 200 and a JSON object, unless critical errors happened or you are rate limited. You should **always** check the status code of the request - if it's not 200 then the data is not a JSON object and could be an error message. A response with code 429 will be returned if you are rate limited - check [Rate Limits](#rate-limits) section for more information.
+
+# Rate limits
+
+To prevent abuse, rate limits apply if you are using our official server (https://argon.globed.dev). If you exceed either of the following limits, you will be temporarily blocked and will receive an HTTP 429 in response:
+
+* 10000 token validations in one day
+* 750 validations in one hour
+
+This effectively allows you to authorize ~7 users per minute, which should be enough for most small to medium sized mods (though these limits are subject to change). As described in the [Best Practices](https://github.com/GlobedGD/argon/blob/main/best-practices.md) guide, it is recommended that your server also has its own kind of session tokens, which can often reduce the requests you make to Argon by *a ton*.
+
+If you still are finding this limit to be way too small for you, you can contact me on discord (`@dank_meme01`) and request an API token which will let you make a lot more requests.
 
 # GET /v1/status
 

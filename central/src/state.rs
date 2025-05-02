@@ -9,6 +9,7 @@ use argon_shared::{WorkerAuthMessage, logger::*};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::{ByteBuffer, ByteReader};
 use nohash_hasher::IntMap;
+use parking_lot::Mutex as SyncMutex;
 use rand::Rng;
 use tokio::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
@@ -93,8 +94,8 @@ fn compute_server_ident(secret_key: &str) -> String {
 pub struct ServerStateData {
     pub config_path: PathBuf,
     pub config: ServerConfig,
-    pub rate_limiter: RateLimiter,
-    active_challenges: IntMap<u32, AuthChallenge>,
+    pub rate_limiter: SyncMutex<RateLimiter>,
+    active_challenges: SyncMutex<IntMap<u32, AuthChallenge>>,
 
     // node handler stuff
     pub node_handler: Option<Arc<NodeHandler>>,
@@ -111,13 +112,13 @@ impl ServerStateData {
         hex::decode_to_slice(&config.secret_key, &mut authtoken_secret_key)
             .expect("invalid secret key format");
 
-        let rate_limiter = RateLimiter::new(&config);
+        let rate_limiter = SyncMutex::new(RateLimiter::new(&config));
 
         Self {
             rate_limiter,
             config,
             config_path,
-            active_challenges: IntMap::default(),
+            active_challenges: SyncMutex::new(IntMap::default()),
             node_handler: None,
             node_count: 0,
             active_node_count: 0,
@@ -128,7 +129,7 @@ impl ServerStateData {
 
     /// creates a new challenge, returns the challenge id and value to the user.
     pub fn create_challenge(
-        &mut self,
+        &self,
         account_id: i32,
         user_id: i32,
         account_name: String,
@@ -152,7 +153,7 @@ impl ServerStateData {
             user_comment_id: 0,
         };
 
-        self.active_challenges.insert(challenge_id, challenge);
+        self.active_challenges.lock().insert(challenge_id, challenge);
 
         Ok((challenge_id, challenge_value))
     }
@@ -165,7 +166,8 @@ impl ServerStateData {
         account_id: i32,
         solution: i32,
     ) -> Result<(bool, bool), ChallengeValidationError> {
-        let challenge = self.active_challenges.get(&challenge_id);
+        let challenges = self.active_challenges.lock();
+        let challenge = challenges.get(&challenge_id);
 
         if let Some(c) = challenge {
             if c.account_id != account_id {
@@ -187,14 +189,14 @@ impl ServerStateData {
         node_handler.pick_challenge_account_id().await
     }
 
-    pub fn erase_challenge(&mut self, challenge_id: u32) -> Option<AuthChallenge> {
-        self.active_challenges.remove(&challenge_id)
+    pub fn erase_challenge(&self, challenge_id: u32) -> Option<AuthChallenge> {
+        self.active_challenges.lock().remove(&challenge_id)
     }
 
-    pub async fn validate_challenges(&mut self, messages: Vec<WorkerAuthMessage>) {
+    pub async fn validate_challenges(&self, messages: Vec<WorkerAuthMessage>) {
         // this is pretty inefficient as it has n*m time complexity but what can we do :p
 
-        self.active_challenges.values_mut().for_each(|challenge| {
+        self.active_challenges.lock().values_mut().for_each(|challenge| {
             for message in &messages {
                 if message.account_id != challenge.account_id
                     || message.user_id != challenge.user_id
@@ -320,6 +322,7 @@ impl ServerStateData {
 
     pub async fn run_cleanup(&mut self) {
         self.active_challenges
+            .lock()
             .retain(|_k, v| v.started_at.elapsed().unwrap_or_default() < Duration::from_mins(3));
     }
 
@@ -386,7 +389,26 @@ impl ServerState {
             counter += 1;
             if counter == 4 {
                 counter = 0;
-                state.rate_limiter.clear_cache();
+                let mut limiter = state.rate_limiter.lock();
+                limiter.clear_cache();
+                let results = limiter.record_hourly_results();
+                drop(limiter);
+                drop(state);
+
+                // TODO: do smth with the results, store in a db
+
+                let sum: usize = results.clients.iter().map(|x| x.1.validations).sum();
+
+                info!("Hourly logs for token validation:");
+                info!("- Total validations: {sum}");
+
+                // sort by numver of validated tokens
+                let mut items = results.clients.iter().collect::<Vec<_>>();
+                items.sort_by_key(|(_, res)| res.validations);
+
+                for (ip, results) in items.iter().rev() {
+                    info!("- {} validations by {}", results.validations, ip);
+                }
             }
         }
     }

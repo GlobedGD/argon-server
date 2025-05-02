@@ -52,6 +52,31 @@ pub struct GDAccountCreds {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct RateLimitConfig {
+    // all of those are per hour
+    pub max_accounts_per_ip: usize,
+    pub max_tokens_per_ip: usize,
+    pub max_failures_per_ip: usize,
+    pub max_attempts_per_ip: usize,
+
+    pub validations_per_day: usize,
+    pub validations_per_hour: usize,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_accounts_per_ip: 10,
+            max_tokens_per_ip: 20,
+            max_failures_per_ip: 30,
+            max_attempts_per_ip: 120,
+            validations_per_day: 10000,
+            validations_per_hour: 750,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ServerConfig {
     #[serde(default = "default_false")]
     pub distributed_mode: bool,
@@ -69,6 +94,10 @@ pub struct ServerConfig {
     pub secret_key: String,
     #[serde(default = "default_false")]
     pub cloudflare_protection: bool,
+
+    // rate limit stuff
+    #[serde(flatten)]
+    pub rate_limits: RateLimitConfig,
 }
 
 impl ServerConfig {

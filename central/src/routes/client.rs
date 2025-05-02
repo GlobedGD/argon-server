@@ -81,21 +81,21 @@ pub async fn challenge_start(
         return Err(ApiError::bad_request("invalid account data"));
     }
 
-    let mut state = state.state_write().await;
+    let state = state.state_read().await;
 
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    if !state.rate_limiter.can_start_challenge(user_ip, data.account_id) {
+    if !state
+        .rate_limiter
+        .lock()
+        .start_challenge(user_ip, data.account_id)
+    {
         warn!(
             "[{} @ {user_ip}] disallowing challenge start, rate limit exceeded",
             data.account_id
         );
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
-
-    state
-        .rate_limiter
-        .record_challenge_start(user_ip, data.account_id);
 
     // Currently, only message auth is supported
     let auth_method = "message";
@@ -179,10 +179,12 @@ pub async fn challenge_verify(
     ip: IpAddr,
     cfip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
-    let mut state = state.state_write().await;
+    let state = state.state_read().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    if !state.rate_limiter.can_verify_poll(user_ip, data.account_id) {
+    let mut rate_limiter = state.rate_limiter.lock();
+
+    if !rate_limiter.can_verify_poll(user_ip, data.account_id) {
         warn!(
             "[{} @ {user_ip}] disallowing challenge verify, rate limit exceeded",
             data.account_id
@@ -208,7 +210,7 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::NoChallenge) => {
-            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter.record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify inexisting challenge",
                 data.account_id
@@ -220,7 +222,7 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::WrongAccount) => {
-            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter.record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify challenge for the wrong account",
                 data.account_id
@@ -232,7 +234,7 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::WrongSolution) => {
-            state.rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter.record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify challenge with incorrect solution",
                 data.account_id
@@ -246,9 +248,8 @@ pub async fn challenge_verify(
     let challenge = state.erase_challenge(data.challenge_id);
     assert!(challenge.is_some(), "challenge should exist after being verified");
 
-    state
-        .rate_limiter
-        .record_challenge_success(user_ip, data.account_id);
+    rate_limiter.record_challenge_success(user_ip, data.account_id);
+    drop(rate_limiter);
 
     let challenge = challenge.unwrap();
 

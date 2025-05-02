@@ -121,17 +121,16 @@ fn validate_one_weak(
 
 #[get("/validation/check?<account_id>&<authtoken>")]
 pub async fn validation_check(
-    state: &State<ServerState>,
+    state_: &State<ServerState>,
     account_id: i32,
     authtoken: &str,
     ip: IpAddr,
     cfip: CloudflareIPGuard,
 ) -> ApiResult<Json<ValidationResponse>> {
-    let state = state.state_read().await;
-
+    let state = state_.state_read().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    if !state.rate_limiter.can_validate(user_ip) {
+    if !state.rate_limiter.lock().validate_token(user_ip) {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -142,13 +141,12 @@ pub async fn validation_check(
 
 #[post("/validation/check-many", data = "<data>")]
 pub async fn validation_check_many(
-    state: &State<ServerState>,
+    state_: &State<ServerState>,
     ip: IpAddr,
     cfip: CloudflareIPGuard,
     data: Json<ValidationManyData>,
 ) -> ApiResult<Json<ValidationManyResponse>> {
-    let state = state.state_read().await;
-
+    let state = state_.state_read().await;
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if data.users.len() > MAX_USERS_IN_REQUEST {
@@ -161,7 +159,11 @@ pub async fn validation_check_many(
 
     debug!("[{user_ip}] (Weak) validating {} tokens", data.users.len());
 
-    if !state.rate_limiter.can_validate_n(data.users.len(), user_ip) {
+    if !state
+        .rate_limiter
+        .lock()
+        .validate_tokens(data.users.len(), user_ip)
+    {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -274,10 +276,9 @@ pub async fn validation_check_strong(
     cfip: CloudflareIPGuard,
 ) -> ApiResult<Json<StrongValidationResponse>> {
     let state = state.state_read().await;
-
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
-    if !state.rate_limiter.can_validate(user_ip) {
+    if !state.rate_limiter.lock().validate_token(user_ip) {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -309,7 +310,6 @@ pub async fn validation_check_strong_many(
     data: Json<StrongValidationManyData>,
 ) -> ApiResult<Json<StrongValidationManyResponse>> {
     let state = state.state_read().await;
-
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
 
     if data.users.len() > MAX_USERS_IN_REQUEST {
@@ -323,7 +323,11 @@ pub async fn validation_check_strong_many(
 
     debug!("[{user_ip}] (Strong) validating {} tokens", data.users.len());
 
-    if !state.rate_limiter.can_validate_n(data.users.len(), user_ip) {
+    if !state
+        .rate_limiter
+        .lock()
+        .validate_tokens(data.users.len(), user_ip)
+    {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));

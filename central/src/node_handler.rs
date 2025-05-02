@@ -2,7 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering},
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -29,6 +29,9 @@ pub struct NodeHandler {
     // fields for the offline mode
     ofm_active: AtomicBool,
     ofm_id: AtomicI32,
+
+    prev_node_count: AtomicUsize,
+    prev_active_count: AtomicUsize,
 }
 
 pub struct Node {
@@ -145,6 +148,8 @@ impl NodeHandler {
             nodes: Mutex::new(Vec::new()),
             ofm_active: AtomicBool::new(false),
             ofm_id: AtomicI32::new(0),
+            prev_node_count: AtomicUsize::new(0),
+            prev_active_count: AtomicUsize::new(0),
         })
     }
 
@@ -217,22 +222,36 @@ impl NodeHandler {
     }
 
     async fn update_node_counter(&self) {
-        let mut state = self.server_state.state_write().await;
-
-        if self.is_offline() {
-            state.node_count = 1;
-            state.active_node_count = if self.ofm_active.load(Ordering::SeqCst) {
-                1
-            } else {
-                0
-            };
+        let (nodes, active) = if self.is_offline() {
+            (1, self.ofm_active.load(Ordering::SeqCst) as usize)
         } else {
             let nodes = self.nodes.lock().await;
-            state.node_count = nodes.len();
-            state.active_node_count = nodes
-                .iter()
-                .filter(|node| node.active.load(Ordering::SeqCst))
-                .count();
+
+            (
+                nodes.len(),
+                nodes
+                    .iter()
+                    .filter(|node| node.active.load(Ordering::SeqCst))
+                    .count(),
+            )
+        };
+
+        let mut changed = false;
+
+        if self.prev_node_count.load(Ordering::SeqCst) != nodes {
+            self.prev_node_count.store(nodes, Ordering::SeqCst);
+            changed = true;
+        }
+
+        if self.prev_active_count.load(Ordering::SeqCst) != active {
+            self.prev_active_count.store(active, Ordering::SeqCst);
+            changed = true;
+        }
+
+        if changed {
+            let mut state = self.server_state.state_write().await;
+            state.node_count = nodes;
+            state.active_node_count = active;
         }
     }
 
@@ -642,7 +661,7 @@ impl NodeHandler {
 
     async fn handle_auth_messages(&self, messages: Vec<WorkerAuthMessage>) {
         self.server_state
-            .state_write()
+            .state_read()
             .await
             .validate_challenges(messages)
             .await;
