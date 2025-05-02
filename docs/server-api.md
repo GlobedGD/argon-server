@@ -39,7 +39,7 @@ The response is a JSON object, with keys:
 
 Upon a validation failure, it is recommended to make the user regenerate the authtoken.
 
-# POST /v1/validation/many/check
+# POST /v1/validation/check-many
 
 Same as `/v1/validation/check` but allows for checking up to 50 accounts at once. The body must be a JSON object, with the following format:
 
@@ -62,22 +62,25 @@ The response is a JSON object, with the following format:
 
 ```json
 {
-    "users": {
-        "12345": {
+    "users": [
+        {
+            "id": 12345,
             "valid": true
         },
-
-        "54321": {
+        {
+            "id": 54321,
             "valid": false,
             "cause": "invalid token"
         }
-    }
+    ]
 }
 ```
 
 Same rules apply to each object in the response as in `/v1/validation/check` - specifically `cause` is only present if `valid` is `false`.
 
-# GET /v1/validation/check_strong
+# GET /v1/validation/check-strong
+
+*(Previously known as `/v1/validation/check_strong`, both remain valid but it is advised to use the one with a dash)*
 
 Checks whether an authtoken is valid and matches the given account ID, user ID and username that are sent by the user.
 
@@ -122,9 +125,9 @@ In short, as a mod developer if `valid` returns `false` while `valid_weak` retur
 
 * If the username has inconsistent casing, for example it is DankMeme01 on the GD servers but dankmeme01 in their game (which is totally valid), Argon will still consider them the same and set `valid` to `true`. This is why it's recommended that you use the username returned in the response instead of the one given by the user, even if strong validation succeeds. Additionally make sure to trim and convert your usernames to lowercase if you are going to be comparing them :)
 
-# POST /v1/validation/many/check_strong
+# POST /v1/validation/check-strong-many
 
-Same as `/v1/validation/check_strong` but allows for checking up to 50 accounts at once. The body must be a JSON object, with the following format:
+Same as `/v1/validation/check-strong` but allows for checking up to 50 accounts at once. The body must be a JSON object, with the following format:
 
 ```json
 {
@@ -143,24 +146,25 @@ Same as `/v1/validation/check_strong` but allows for checking up to 50 accounts 
 }
 ```
 
-Just like `/v1/validation/check_strong`, `user_id` and `name` can be omitted in each object.
+Just like `/v1/validation/check-strong`, `user_id` and `name` can be omitted in each object.
 
 The response is a JSON object, with the following format:
 
 ```json
 {
-    "users": {
-        "12345": {
+    "users": [
+        {
+            "id": 12345,
             "valid": true,
             "valid_weak": true,
             "username": "foo"
         },
-
-        "54321": {
+        {
+            "id": 54321,
             "valid": false,
             "valid_weak": false,
             "cause": "invalid token"
         }
-    }
+    ]
 }
 ```

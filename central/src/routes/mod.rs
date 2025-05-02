@@ -19,6 +19,7 @@ pub fn build_routes() -> Vec<Route> {
         dev::validation_check,
         dev::validation_check_many,
         dev::validation_check_strong,
+        dev::validation_check_strong_alias,
         dev::validation_check_strong_many,
     ]
 }

@@ -45,7 +45,7 @@ impl RateLimiter {
         true
     }
 
-    pub fn can_validate_n(&self, count: usize, _user_ip: IpAddr) -> bool {
+    pub fn can_validate_n(&self, _count: usize, _user_ip: IpAddr) -> bool {
         true
     }
 

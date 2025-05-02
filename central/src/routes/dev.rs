@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, time::Duration};
+use std::net::IpAddr;
 
 use argon_shared::logger::*;
 use rocket::{State, get, post, serde::json::Json};
@@ -7,12 +7,17 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api_error::{ApiError, ApiResult},
     routes_util::*,
-    state::{
-        AuthtokenData, AuthtokenValidationError, ChallengeValidationError, ServerState, ServerStateData,
-    },
+    state::{ServerState, ServerStateData},
 };
 
 const MAX_USERS_IN_REQUEST: usize = 50;
+
+#[derive(Serialize)]
+pub struct WithId<T: Serialize> {
+    pub id: i32,
+    #[serde(flatten)]
+    pub value: T,
+}
 
 #[derive(Serialize)]
 pub struct ValidationResponse {
@@ -35,7 +40,7 @@ pub struct ValidationManyData {
 
 #[derive(Serialize)]
 pub struct ValidationManyResponse {
-    pub users: HashMap<i32, ValidationResponse>,
+    pub users: Vec<WithId<ValidationResponse>>,
 }
 
 #[derive(Serialize)]
@@ -64,7 +69,7 @@ pub struct StrongValidationManyData {
 
 #[derive(Serialize)]
 pub struct StrongValidationManyResponse {
-    pub users: HashMap<i32, StrongValidationResponse>,
+    pub users: Vec<WithId<StrongValidationResponse>>,
 }
 
 fn validate_one_weak(
@@ -135,20 +140,26 @@ pub async fn validation_check(
     Ok(Json(validate_one_weak(&state, user_ip, account_id, authtoken)))
 }
 
-#[post("/validation/many/check", data = "<data>")]
+#[post("/validation/check-many", data = "<data>")]
 pub async fn validation_check_many(
     state: &State<ServerState>,
     ip: IpAddr,
     cfip: CloudflareIPGuard,
     data: Json<ValidationManyData>,
 ) -> ApiResult<Json<ValidationManyResponse>> {
-    if data.users.len() > MAX_USERS_IN_REQUEST {
-        return Err(ApiError::bad_request("too many users in the request"));
-    }
-
     let state = state.state_read().await;
 
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        debug!(
+            "[{user_ip}] (Weak) tried validating {} tokens, rejecting",
+            data.users.len()
+        );
+        return Err(ApiError::bad_request("too many users in the request"));
+    }
+
+    debug!("[{user_ip}] (Weak) validating {} tokens", data.users.len());
 
     if !state.rate_limiter.can_validate_n(data.users.len(), user_ip) {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
@@ -157,13 +168,16 @@ pub async fn validation_check_many(
     }
 
     let mut response = ValidationManyResponse {
-        users: HashMap::with_capacity(data.users.len()),
+        users: Vec::with_capacity(data.users.len()),
     };
 
     for account in &data.users {
         let res = validate_one_weak(&state, user_ip, account.account_id, &account.token);
 
-        response.users.insert(account.account_id, res);
+        response.users.push(WithId {
+            id: account.account_id,
+            value: res,
+        });
     }
 
     Ok(Json(response))
@@ -249,7 +263,7 @@ fn validate_one_strong(
     }
 }
 
-#[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
+#[get("/validation/check-strong?<account_id>&<user_id>&<username>&<authtoken>")]
 pub async fn validation_check_strong(
     state: &State<ServerState>,
     account_id: i32,
@@ -274,20 +288,40 @@ pub async fn validation_check_strong(
     )))
 }
 
-#[post("/validation/many/check_strong", data = "<data>")]
+#[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
+pub async fn validation_check_strong_alias(
+    state: &State<ServerState>,
+    account_id: i32,
+    user_id: Option<i32>,
+    username: Option<&str>,
+    authtoken: &str,
+    ip: IpAddr,
+    cfip: CloudflareIPGuard,
+) -> ApiResult<Json<StrongValidationResponse>> {
+    validation_check_strong(state, account_id, user_id, username, authtoken, ip, cfip).await
+}
+
+#[post("/validation/check-strong-many", data = "<data>")]
 pub async fn validation_check_strong_many(
     state: &State<ServerState>,
     ip: IpAddr,
     cfip: CloudflareIPGuard,
     data: Json<StrongValidationManyData>,
 ) -> ApiResult<Json<StrongValidationManyResponse>> {
-    if data.users.len() > MAX_USERS_IN_REQUEST {
-        return Err(ApiError::bad_request("too many users in the request"));
-    }
-
     let state = state.state_read().await;
 
     let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        debug!(
+            "[{user_ip}] (Strong) tried validating {} tokens, rejecting",
+            data.users.len()
+        );
+
+        return Err(ApiError::bad_request("too many users in the request"));
+    }
+
+    debug!("[{user_ip}] (Strong) validating {} tokens", data.users.len());
 
     if !state.rate_limiter.can_validate_n(data.users.len(), user_ip) {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
@@ -296,7 +330,7 @@ pub async fn validation_check_strong_many(
     }
 
     let mut response = StrongValidationManyResponse {
-        users: HashMap::with_capacity(data.users.len()),
+        users: Vec::with_capacity(data.users.len()),
     };
 
     for account in &data.users {
@@ -309,7 +343,10 @@ pub async fn validation_check_strong_many(
             &account.token,
         );
 
-        response.users.insert(account.account_id, res);
+        response.users.push(WithId {
+            id: account.account_id,
+            value: res,
+        });
     }
 
     Ok(Json(response))
