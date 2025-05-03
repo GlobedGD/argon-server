@@ -96,7 +96,7 @@ pub struct ServerConfig {
     pub cloudflare_protection: bool,
 
     // rate limit stuff
-    #[serde(flatten)]
+    #[serde(default)]
     pub rate_limits: RateLimitConfig,
 }
 
