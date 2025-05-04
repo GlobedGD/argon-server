@@ -16,11 +16,3 @@ msgpack = "1KiB"
 
 string = "8KiB"
 bytes = "8KiB"
-
-
-[global.databases.argon_db]
-pool_size = 25
-timeout = 10
-
-# URL of the sqlite database.
-url = "sqlite://db.sqlite?mode=rwc"

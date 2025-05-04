@@ -8,9 +8,9 @@
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
-use database::ArgonDb;
+use database::ArgonDbPool;
 use node_handler::NodeHandler;
-use rocket::{fairing::AdHoc, routes};
+use rocket::routes;
 use state::{ServerState, ServerStateData};
 use std::{
     error::Error,
@@ -210,12 +210,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     // start rocket
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://db.sqlite".to_owned());
 
     let mut rocket = rocket::build()
         .mount("/v1/", routes::build_routes())
         .mount("/", routes![routes::index])
-        .attach(ArgonDb::fairing())
-        .attach(AdHoc::on_ignite("Database migrations", database::run_migrations));
+        .manage(ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database"));
 
     {
         let state = state.state_read().await;
