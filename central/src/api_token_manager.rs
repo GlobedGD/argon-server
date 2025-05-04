@@ -1,10 +1,10 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
-use bytebuffer::ByteReader;
+use bytebuffer::{ByteBuffer, ByteReader};
 use parking_lot::Mutex as SyncMutex;
 use std::{fmt::Display, sync::Arc};
 
 use crate::{
-    database::{ApiToken, ArgonDb, ArgonDbError},
+    database::{ApiToken, ArgonDb, ArgonDbError, NewApiToken},
     rate_limiter::RateLimiter,
 };
 
@@ -87,8 +87,29 @@ impl ApiTokenManager {
             .expect("validate_tokens_registered must succeed after the token was added"))
     }
 
+    pub async fn generate_token<'a>(
+        &self,
+        db: &ArgonDb,
+        data: NewApiToken<'a>,
+    ) -> Result<String, ArgonDbError> {
+        let token = db.insert_token(data).await?;
+
+        Ok(self.encode_api_token(&token))
+    }
+
     async fn get_token_data_by_id(&self, db: &ArgonDb, token_id: i32) -> Result<ApiToken, TokenFetchError> {
         db.get_token(token_id).await.map_err(TokenFetchError::Database)
+    }
+
+    fn encode_api_token(&self, token: &ApiToken) -> String {
+        let token_body = token.id.to_be_bytes();
+
+        // sign the token
+        let signature = b64e.encode(blake3::keyed_hash(&self.secret_key, &token_body).as_bytes());
+
+        let encoded_body = b64e.encode(token_body);
+
+        format!("{}.{encoded_body}.{signature}", self.ident)
     }
 
     // returns token ID if token is valid

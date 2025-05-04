@@ -1,4 +1,5 @@
 use std::{
+    net::IpAddr,
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -259,17 +260,42 @@ impl ServerState {
 
                 // TODO: do smth with the results, store in a db
 
-                let sum: usize = results.clients.iter().map(|x| x.1.validations).sum();
+                enum IpOrName<'a> {
+                    Ip(&'a IpAddr),
+                    Name(&'a String),
+                }
+
+                let mut items = results
+                    .clients
+                    .iter()
+                    .map(|x| (IpOrName::Ip(x.0), x.1.validations))
+                    .collect::<Vec<_>>();
+
+                let sum_1: usize = items.iter().map(|x| x.1).sum();
+
+                items.extend(
+                    results
+                        .reg_clients
+                        .iter()
+                        .map(|x| (IpOrName::Name(&x.1.name), x.1.validations)),
+                );
+
+                let sum: usize = items.iter().map(|x| x.1).sum();
+                let sum_2 = sum - sum_1;
 
                 info!("Hourly logs for token validation:");
-                info!("- Total validations: {sum}");
+                info!("- Total validations: {sum} (from registered: {sum_2}, unregistered: {sum_1}");
 
-                // sort by numver of validated tokens
-                let mut items = results.clients.iter().collect::<Vec<_>>();
-                items.sort_by_key(|(_, res)| res.validations);
+                // sort by number of validated tokens
+                items.sort_by_key(|(_, res)| *res);
 
-                for (ip, results) in items.iter().rev() {
-                    info!("- {} validations by {}", results.validations, ip);
+                for (ip_or_name, validations) in items.iter().rev() {
+                    match ip_or_name {
+                        IpOrName::Ip(ip) => info!("- {} validations by {}", validations, ip),
+                        IpOrName::Name(name) => {
+                            info!("- {} validations by {} (registered)", validations, name);
+                        }
+                    }
                 }
             }
         }

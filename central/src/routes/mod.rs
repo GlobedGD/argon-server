@@ -1,5 +1,6 @@
 use rocket::{Route, get, routes};
 
+mod admin;
 mod api_error;
 mod client;
 mod dev;
@@ -13,6 +14,7 @@ pub async fn index() -> &'static str {
 
 pub fn build_routes() -> Vec<Route> {
     routes![
+        admin::create_token,
         status::status,
         client::challenge_start,
         client::challenge_restart,

@@ -1,6 +1,6 @@
 use std::{fmt::Display, sync::Arc, time::Duration};
 
-use crate::schema::api_tokens::dsl::api_tokens;
+use crate::schema::api_tokens::{dsl::api_tokens, table as api_tokens_table};
 use argon_shared::{debug, error, info, warn};
 use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
@@ -42,9 +42,25 @@ pub struct ApiToken {
     pub validations_per_hour: i32,
 }
 
+#[derive(Insertable)]
+#[diesel(table_name = crate::schema::api_tokens)]
+pub struct NewApiToken<'a> {
+    pub name: &'a str,
+    pub owner: &'a str,
+    pub description: &'a str,
+    pub validations_per_day: i32,
+    pub validations_per_hour: i32,
+}
+
 pub enum ArgonDbError {
     Database(diesel::result::Error),
     NotFound,
+}
+
+impl From<diesel::result::Error> for ArgonDbError {
+    fn from(value: diesel::result::Error) -> Self {
+        Self::Database(value)
+    }
 }
 
 impl Display for ArgonDbError {
@@ -94,6 +110,19 @@ impl ArgonDb {
             Ok(None) => Err(ArgonDbError::NotFound),
             Err(err) => Err(ArgonDbError::Database(err)),
         }
+    }
+
+    pub async fn insert_token<'a>(&self, token: NewApiToken<'a>) -> Result<ApiToken, ArgonDbError> {
+        let token = self
+            .run(|conn| {
+                diesel::insert_into(api_tokens_table)
+                    .values(&token)
+                    .returning(ApiToken::as_returning())
+                    .get_result(conn)
+            })
+            .await?;
+
+        Ok(token)
     }
 }
 

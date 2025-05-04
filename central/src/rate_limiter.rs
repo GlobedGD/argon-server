@@ -34,6 +34,7 @@ struct RegisteredValidationLimiterEntry {
     pub last_hour: usize,
     pub max_per_day: usize,
     pub max_per_hour: usize,
+    pub name: String,
 }
 
 impl Default for ValidationLimiterEntry {
@@ -54,6 +55,7 @@ impl Default for RegisteredValidationLimiterEntry {
             last_hour: 0,
             max_per_day: 0,
             max_per_hour: 0,
+            name: String::new(),
         }
     }
 }
@@ -62,9 +64,14 @@ pub struct ClientResults {
     pub validations: usize,
 }
 
+pub struct RegClientResults {
+    pub validations: usize,
+    pub name: String,
+}
+
 pub struct HourlyValidationResults {
     pub clients: HashMap<IpAddr, ClientResults>,
-    pub reg_clients: IntMap<i32, ClientResults>,
+    pub reg_clients: IntMap<i32, RegClientResults>,
 }
 
 pub struct RateLimiter {
@@ -197,6 +204,7 @@ impl RateLimiter {
             RegisteredValidationLimiterEntry {
                 max_per_day: usize::try_from(token.validations_per_day).unwrap_or(0),
                 max_per_hour: usize::try_from(token.validations_per_hour).unwrap_or(0),
+                name: token.name.clone(),
                 ..Default::default()
             },
         );
@@ -225,9 +233,13 @@ impl RateLimiter {
         for (token_id, entry) in self.val_cache_registered.iter_mut() {
             let validations = std::mem::take(&mut entry.last_hour);
 
-            results
-                .reg_clients
-                .insert(*token_id, ClientResults { validations });
+            results.reg_clients.insert(
+                *token_id,
+                RegClientResults {
+                    validations,
+                    name: entry.name.clone(),
+                },
+            );
         }
 
         // keep entries that have been there for less than a day
