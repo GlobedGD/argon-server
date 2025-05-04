@@ -7,6 +7,8 @@ use rocket::{
 };
 use serde_json::json;
 
+use crate::api_token_manager::TokenFetchError;
+
 pub struct ApiError {
     code: u16,
     message: String,
@@ -51,6 +53,18 @@ impl ApiError {
 
     pub fn internal_server_error(message: impl Into<String>) -> Self {
         Self::new(500, message)
+    }
+}
+
+impl From<TokenFetchError> for ApiError {
+    #[allow(unused)]
+    fn from(value: TokenFetchError) -> Self {
+        #[cfg(debug_assertions)]
+        let err = Self::unauthorized(format!("invalid api token in authorization header: {value}"));
+        #[cfg(not(debug_assertions))]
+        let err = Self::unauthorized("invalid api token in authorization header");
+
+        err
     }
 }
 

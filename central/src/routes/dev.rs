@@ -6,12 +6,14 @@ use rocket::{State, get, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    api_token_manager::{ApiTokenManager, TokenFetchError},
+    database::ArgonDb,
     rate_limiter::RateLimiter,
     routes::api_error::{ApiError, ApiResult},
     token_issuer::TokenIssuer,
 };
 
-use super::routes_util::CloudflareIPGuard;
+use super::routes_util::{ApiTokenGuard, CloudflareIPGuard};
 
 const MAX_USERS_IN_REQUEST: usize = 50;
 
@@ -75,6 +77,21 @@ pub struct StrongValidationManyResponse {
     pub users: Vec<WithId<StrongValidationResponse>>,
 }
 
+async fn should_allow(
+    limiter: &SyncMutex<RateLimiter>,
+    token_manager: &ApiTokenManager,
+    db: &ArgonDb,
+    user_ip: IpAddr,
+    api_token: ApiTokenGuard,
+    count: usize,
+) -> Result<bool, TokenFetchError> {
+    match api_token.0 {
+        None => Ok(limiter.lock().validate_tokens(count, user_ip)),
+
+        Some(token) => token_manager.validate_tokens(&token, db, count).await,
+    }
+}
+
 fn validate_one_weak(
     issuer: &TokenIssuer,
     user_ip: IpAddr,
@@ -122,17 +139,21 @@ fn validate_one_weak(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/validation/check?<account_id>&<authtoken>")]
 pub async fn validation_check(
     issuer: &State<Arc<TokenIssuer>>,
     rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
     account_id: i32,
     authtoken: &str,
     ip: CloudflareIPGuard,
+    api_token: ApiTokenGuard,
 ) -> ApiResult<Json<ValidationResponse>> {
     let user_ip = ip.0;
 
-    if !rate_limiter.lock().validate_token(user_ip) {
+    if !should_allow(rate_limiter, token_manager, &db, user_ip, api_token, 1).await? {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -144,8 +165,11 @@ pub async fn validation_check(
 #[post("/validation/check-many", data = "<data>")]
 pub async fn validation_check_many(
     issuer: &State<Arc<TokenIssuer>>,
-    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
     ip: CloudflareIPGuard,
+    api_token: ApiTokenGuard,
     data: Json<ValidationManyData>,
 ) -> ApiResult<Json<ValidationManyResponse>> {
     let user_ip = ip.0;
@@ -160,7 +184,7 @@ pub async fn validation_check_many(
 
     debug!("[{user_ip}] (Weak) validating {} tokens", data.users.len());
 
-    if !rate_limiter.lock().validate_tokens(data.users.len(), user_ip) {
+    if !should_allow(limiter, token_manager, &db, user_ip, api_token, data.users.len()).await? {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -262,19 +286,23 @@ fn validate_one_strong(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/validation/check-strong?<account_id>&<user_id>&<username>&<authtoken>")]
 pub async fn validation_check_strong(
     issuer: &State<Arc<TokenIssuer>>,
-    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
     account_id: i32,
     user_id: Option<i32>,
     username: Option<&str>,
     authtoken: &str,
     ip: CloudflareIPGuard,
+    api_token: ApiTokenGuard,
 ) -> ApiResult<Json<StrongValidationResponse>> {
     let user_ip = ip.0;
 
-    if !rate_limiter.lock().validate_token(user_ip) {
+    if !should_allow(limiter, token_manager, &db, user_ip, api_token, 1).await? {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));
@@ -285,25 +313,44 @@ pub async fn validation_check_strong(
     )))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[get("/validation/check_strong?<account_id>&<user_id>&<username>&<authtoken>")]
 pub async fn validation_check_strong_alias(
     issuer: &State<Arc<TokenIssuer>>,
-    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
     account_id: i32,
     user_id: Option<i32>,
     username: Option<&str>,
     authtoken: &str,
     ip: CloudflareIPGuard,
+    api_token: ApiTokenGuard,
 ) -> ApiResult<Json<StrongValidationResponse>> {
-    validation_check_strong(issuer, rate_limiter, account_id, user_id, username, authtoken, ip).await
+    validation_check_strong(
+        issuer,
+        limiter,
+        token_manager,
+        db,
+        account_id,
+        user_id,
+        username,
+        authtoken,
+        ip,
+        api_token,
+    )
+    .await
 }
 
 #[post("/validation/check-strong-many", data = "<data>")]
 pub async fn validation_check_strong_many(
     issuer: &State<Arc<TokenIssuer>>,
-    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
     ip: CloudflareIPGuard,
     data: Json<StrongValidationManyData>,
+    api_token: ApiTokenGuard,
 ) -> ApiResult<Json<StrongValidationManyResponse>> {
     let user_ip = ip.0;
 
@@ -318,7 +365,7 @@ pub async fn validation_check_strong_many(
 
     debug!("[{user_ip}] (Strong) validating {} tokens", data.users.len());
 
-    if !rate_limiter.lock().validate_tokens(data.users.len(), user_ip) {
+    if !should_allow(limiter, token_manager, &db, user_ip, api_token, data.users.len()).await? {
         warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
 
         return Err(ApiError::too_many_requests("rate limit exceeded"));

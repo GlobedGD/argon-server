@@ -4,9 +4,9 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome},
 };
-use std::{net::IpAddr, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
-use crate::{ip_blocker::IpBlocker, state::ServerState};
+use crate::ip_blocker::IpBlocker;
 
 // client ip address
 pub struct CloudflareIPGuard(pub IpAddr);
@@ -23,7 +23,7 @@ impl<'r> FromRequest<'r> for CloudflareIPGuard {
             ));
         };
 
-        let ip_blocker = request.rocket().state::<IpBlocker>().unwrap();
+        let ip_blocker = request.rocket().state::<Arc<IpBlocker>>().unwrap();
 
         if !ip_blocker.is_enabled() {
             return Outcome::Success(CloudflareIPGuard(client_ip));
@@ -57,7 +57,6 @@ impl<'r> FromRequest<'r> for CloudflareIPGuard {
 }
 
 // api token guard
-// TODO
 pub struct ApiTokenGuard(pub Option<String>);
 
 #[rocket::async_trait]
@@ -74,9 +73,9 @@ impl<'r> FromRequest<'r> for ApiTokenGuard {
                     ));
                 }
 
-                // let state = request.rocket().state::<ServerState>();
+                let token = x.strip_prefix("Bearer ").unwrap().trim();
 
-                Outcome::Success(ApiTokenGuard(Some(x.to_owned())))
+                Outcome::Success(ApiTokenGuard(Some(token.to_owned())))
             }
             None => Outcome::Success(ApiTokenGuard(None)),
         }

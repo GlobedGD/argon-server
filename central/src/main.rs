@@ -21,6 +21,7 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
+mod api_token_manager;
 mod config;
 mod database;
 mod health_state;
@@ -29,6 +30,7 @@ mod ip_blocker;
 mod node_handler;
 mod rate_limiter;
 mod routes;
+mod schema;
 mod state;
 mod token_issuer;
 
@@ -224,7 +226,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .manage(state.health_state.clone())
             .manage(state.token_issuer.clone())
             .manage(state.ip_blocker.clone())
-            .manage(state.rate_limiter.clone());
+            .manage(state.rate_limiter.clone())
+            .manage(state.api_token_manager.clone());
     }
 
     let rocket = rocket.manage(state);

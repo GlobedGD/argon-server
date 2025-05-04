@@ -1,14 +1,16 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Display, sync::Arc, time::Duration};
 
+use crate::schema::api_tokens::dsl::api_tokens;
 use argon_shared::{debug, error, info, warn};
 use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
     connection::SimpleConnection,
+    prelude::*,
     r2d2::{self, ConnectionManager, CustomizeConnection, Pool, PooledConnection},
 };
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use rocket::{
-    Build, Phase, Request, Rocket,
+    Phase, Request, Rocket,
     http::Status,
     request::{FromRequest, Outcome},
 };
@@ -23,6 +25,35 @@ type ArgonDbPoolInner = Pool<ConnectionManager<SqliteConnection>>;
 pub struct ArgonDb {
     conn: Arc<Mutex<Option<ArgonDbInner>>>,
     permit: Option<OwnedSemaphorePermit>,
+}
+
+// Models
+
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = crate::schema::api_tokens)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[allow(unused)]
+pub struct ApiToken {
+    pub id: i32,
+    pub name: String,
+    pub owner: String,
+    pub description: String,
+    pub validations_per_day: i32,
+    pub validations_per_hour: i32,
+}
+
+pub enum ArgonDbError {
+    Database(diesel::result::Error),
+    NotFound,
+}
+
+impl Display for ArgonDbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "row not found"),
+            Self::Database(err) => write!(f, "diesel error: {err}"),
+        }
+    }
 }
 
 // Main database impl
@@ -45,6 +76,24 @@ impl ArgonDb {
 
         let pconn = conn.as_mut().expect("self.connection should be Some");
         tokio::task::block_in_place(move || f(pconn))
+    }
+
+    pub async fn get_token(&self, token_id: i32) -> Result<ApiToken, ArgonDbError> {
+        let token = self
+            .run(|conn| {
+                api_tokens
+                    .find(token_id)
+                    .select(ApiToken::as_select())
+                    .first(conn)
+                    .optional()
+            })
+            .await;
+
+        match token {
+            Ok(Some(token)) => Ok(token),
+            Ok(None) => Err(ArgonDbError::NotFound),
+            Err(err) => Err(ArgonDbError::Database(err)),
+        }
     }
 }
 

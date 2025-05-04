@@ -14,8 +14,8 @@ use tokio::{
 };
 
 use crate::{
-    config::ServerConfig, health_state::ServerHealthState, ip_blocker::IpBlocker, node_handler::NodeHandler,
-    rate_limiter::RateLimiter, token_issuer::TokenIssuer,
+    api_token_manager::ApiTokenManager, config::ServerConfig, health_state::ServerHealthState,
+    ip_blocker::IpBlocker, node_handler::NodeHandler, rate_limiter::RateLimiter, token_issuer::TokenIssuer,
 };
 
 pub enum ChallengeValidationError {
@@ -52,6 +52,7 @@ pub struct ServerStateData {
     pub token_issuer: Arc<TokenIssuer>,
     pub ip_blocker: Arc<IpBlocker>,
     pub rate_limiter: Arc<SyncMutex<RateLimiter>>,
+    pub api_token_manager: Arc<ApiTokenManager>,
     active_challenges: SyncMutex<IntMap<u32, AuthChallenge>>,
 
     // node handler stuff
@@ -68,6 +69,10 @@ impl ServerStateData {
             TokenIssuer::new(&config.secret_key, server_ident.clone()).expect("Failed to create TokenIssuer"),
         );
         let ip_blocker = Arc::new(IpBlocker::new(config.cloudflare_protection));
+        let api_token_manager = Arc::new(
+            ApiTokenManager::new(&config.secret_key, server_ident.clone(), rate_limiter.clone())
+                .expect("Failed to create ApiTokenManager"),
+        );
 
         Self {
             rate_limiter,
@@ -78,6 +83,7 @@ impl ServerStateData {
             health_state: Arc::new(ServerHealthState::new(server_ident)),
             token_issuer,
             ip_blocker,
+            api_token_manager,
         }
     }
 
