@@ -22,6 +22,7 @@ impl ApiError {
         }
     }
 
+    #[allow(unused)]
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::new(401, message)
     }
@@ -30,10 +31,12 @@ impl ApiError {
         Self::new(400, message)
     }
 
+    #[allow(unused)]
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self::new(403, message)
     }
 
+    #[allow(unused)]
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(404, message)
     }

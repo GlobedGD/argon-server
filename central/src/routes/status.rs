@@ -1,10 +1,10 @@
+use std::sync::Arc;
+
 use rocket::{State, get, serde::json::Json};
 use serde::Serialize;
 
-use crate::{
-    api_error::{ApiError, ApiResult},
-    state::ServerState,
-};
+use super::api_error::{ApiError, ApiResult};
+use crate::health_state::ServerHealthState;
 
 #[derive(Serialize)]
 pub struct StatusResponse {
@@ -15,18 +15,19 @@ pub struct StatusResponse {
 }
 
 #[get("/status?<errorifdead>")]
-pub async fn status(state: &State<ServerState>, errorifdead: Option<i32>) -> ApiResult<Json<StatusResponse>> {
-    let state = state.state_read().await;
-
+pub async fn status(
+    health_state: &State<Arc<ServerHealthState>>,
+    errorifdead: Option<i32>,
+) -> ApiResult<Json<StatusResponse>> {
     // if errorifdead is set and there are no active nodes, send an error instead
-    if errorifdead.unwrap_or(0) != 0 && state.active_node_count == 0 {
+    if errorifdead.unwrap_or(0) != 0 && !health_state.is_active() {
         return Err(ApiError::not_acceptable(""));
     }
 
     Ok(Json(StatusResponse {
-        total_nodes: state.node_count,
-        active_nodes: state.active_node_count,
-        active: state.active_node_count > 0,
-        ident: state.server_ident.clone(),
+        total_nodes: health_state.node_count(),
+        active_nodes: health_state.active_node_count(),
+        active: health_state.is_active(),
+        ident: health_state.ident.clone(),
     }))
 }

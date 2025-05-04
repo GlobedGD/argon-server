@@ -2,7 +2,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -19,19 +19,17 @@ use tokio::{
     time::MissedTickBehavior,
 };
 
-use crate::{config::GDAccountCreds, state::ServerState};
+use crate::{config::GDAccountCreds, health_state::ServerHealthState, state::ServerState};
 
 pub struct NodeHandler {
     server_state: ServerState,
+    health_state: Arc<ServerHealthState>,
     // fields for the distributed mode
     listener: Option<TcpListener>,
     nodes: Mutex<Vec<Arc<Node>>>,
     // fields for the offline mode
     ofm_active: AtomicBool,
     ofm_id: AtomicI32,
-
-    prev_node_count: AtomicUsize,
-    prev_active_count: AtomicUsize,
 }
 
 pub struct Node {
@@ -142,14 +140,15 @@ impl NodeHandler {
             None
         };
 
+        let health_state = state.state_read().await.health_state.clone();
+
         Ok(Self {
             server_state: state,
+            health_state,
             listener,
             nodes: Mutex::new(Vec::new()),
             ofm_active: AtomicBool::new(false),
             ofm_id: AtomicI32::new(0),
-            prev_node_count: AtomicUsize::new(0),
-            prev_active_count: AtomicUsize::new(0),
         })
     }
 
@@ -236,23 +235,8 @@ impl NodeHandler {
             )
         };
 
-        let mut changed = false;
-
-        if self.prev_node_count.load(Ordering::SeqCst) != nodes {
-            self.prev_node_count.store(nodes, Ordering::SeqCst);
-            changed = true;
-        }
-
-        if self.prev_active_count.load(Ordering::SeqCst) != active {
-            self.prev_active_count.store(active, Ordering::SeqCst);
-            changed = true;
-        }
-
-        if changed {
-            let mut state = self.server_state.state_write().await;
-            state.node_count = nodes;
-            state.active_node_count = active;
-        }
+        self.health_state.set_node_count(nodes);
+        self.health_state.set_active_node_count(active);
     }
 
     async fn run_handler(&self) -> anyhow::Result<()> {

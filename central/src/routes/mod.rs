@@ -1,7 +1,9 @@
 use rocket::{Route, get, routes};
 
+mod api_error;
 mod client;
 mod dev;
+mod routes_util;
 mod status;
 
 #[get("/")]

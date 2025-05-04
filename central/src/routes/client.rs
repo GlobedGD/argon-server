@@ -1,13 +1,18 @@
-use std::net::IpAddr;
+use std::sync::Arc;
 
 use argon_shared::logger::*;
+use parking_lot::Mutex as SyncMutex;
 use rocket::{State, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api_error::{ApiError, ApiResult},
-    routes_util::*,
+    rate_limiter::RateLimiter,
+    routes::{
+        api_error::{ApiError, ApiResult},
+        routes_util::*,
+    },
     state::{ChallengeValidationError, ServerState},
+    token_issuer::TokenIssuer,
 };
 
 pub fn default_preferred_auth_method() -> String {
@@ -71,31 +76,27 @@ pub struct ChallengeStartResponse {
 
 #[post("/challenge/start", data = "<data>")]
 pub async fn challenge_start(
-    state: &State<ServerState>,
+    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    state_: &State<ServerState>,
     data: Json<ChallengeStartData>,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
+    ip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeStartResponse> {
     if data.account_id <= 0 || data.user_id <= 0 || !(1usize..=16usize).contains(&data.username.trim().len())
     {
         return Err(ApiError::bad_request("invalid account data"));
     }
 
-    let state = state.state_read().await;
+    let user_ip = ip.0;
 
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
-
-    if !state
-        .rate_limiter
-        .lock()
-        .start_challenge(user_ip, data.account_id)
-    {
+    if !rate_limiter.lock().start_challenge(user_ip, data.account_id) {
         warn!(
             "[{} @ {user_ip}] disallowing challenge start, rate limit exceeded",
             data.account_id
         );
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
+
+    let state = state_.state_read().await;
 
     // Currently, only message auth is supported
     let auth_method = "message";
@@ -134,18 +135,18 @@ pub async fn challenge_start(
         challenge_id,
         method: auth_method,
         id,
-        ident: state.server_ident.clone(),
+        ident: state.ident().to_owned(),
     }))
 }
 
 #[post("/challenge/restart", data = "<data>")]
 pub async fn challenge_restart(
+    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
     state: &State<ServerState>,
     data: Json<ChallengeStartData>,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
+    ip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeStartResponse> {
-    challenge_start(state, data, ip, cfip).await
+    challenge_start(rate_limiter, state, data, ip).await
 }
 
 #[derive(Deserialize)]
@@ -174,15 +175,17 @@ pub struct ChallengeVerifyResponse {
 
 #[post("/challenge/verify", data = "<data>")]
 pub async fn challenge_verify(
+    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    issuer: &State<Arc<TokenIssuer>>,
     state: &State<ServerState>,
     data: Json<ChallengeVerifyData>,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
+    ip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
-    let state = state.state_read().await;
-    let user_ip = check_ip(ip, &cfip, state.config.cloudflare_protection)?;
+    let user_ip = ip.0;
 
-    let mut rate_limiter = state.rate_limiter.lock();
+    let state = state.state_read().await;
+
+    let mut rate_limiter = rate_limiter.lock();
 
     if !rate_limiter.can_verify_poll(user_ip, data.account_id) {
         warn!(
@@ -265,7 +268,7 @@ pub async fn challenge_verify(
         ));
     }
 
-    let token = state.generate_authtoken(&challenge);
+    let token = issuer.generate(&challenge);
 
     if strong {
         info!(
@@ -294,10 +297,11 @@ pub async fn challenge_verify(
 
 #[post("/challenge/verifypoll", data = "<data>")]
 pub async fn challenge_verify_poll(
+    rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    issuer: &State<Arc<TokenIssuer>>,
     state: &State<ServerState>,
     data: Json<ChallengeVerifyData>,
-    ip: IpAddr,
-    cfip: CloudflareIPGuard,
+    ip: CloudflareIPGuard,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
-    challenge_verify(state, data, ip, cfip).await
+    challenge_verify(rate_limiter, issuer, state, data, ip).await
 }

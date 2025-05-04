@@ -8,8 +8,9 @@
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
+use database::ArgonDb;
 use node_handler::NodeHandler;
-use rocket::routes;
+use rocket::{fairing::AdHoc, routes};
 use state::{ServerState, ServerStateData};
 use std::{
     error::Error,
@@ -20,14 +21,16 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
-mod api_error;
 mod config;
+mod database;
+mod health_state;
+mod ip_allowlist;
 mod ip_blocker;
 mod node_handler;
 mod rate_limiter;
 mod routes;
-mod routes_util;
 mod state;
+mod token_issuer;
 
 fn abort_misconfig() -> ! {
     error!("aborting launch due to misconfiguration.");
@@ -71,7 +74,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if !rocket_toml.exists() {
         info!("Creating a template Rocket.toml file");
         let mut file = tokio::fs::File::create(rocket_toml).await?;
-        file.write_all(include_bytes!("Rocket.toml.template")).await?;
+        file.write_all(include_bytes!("misc/Rocket.toml.template"))
+            .await?;
     }
 
     // config file
@@ -207,10 +211,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start rocket
 
-    let rocket = rocket::build()
+    let mut rocket = rocket::build()
         .mount("/v1/", routes::build_routes())
         .mount("/", routes![routes::index])
-        .manage(state);
+        .attach(ArgonDb::fairing())
+        .attach(AdHoc::on_ignite("Database migrations", database::run_migrations));
+
+    {
+        let state = state.state_read().await;
+
+        rocket = rocket
+            .manage(state.health_state.clone())
+            .manage(state.token_issuer.clone())
+            .manage(state.ip_blocker.clone())
+            .manage(state.rate_limiter.clone());
+    }
+
+    let rocket = rocket.manage(state);
 
     rocket.launch().await?;
 

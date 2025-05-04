@@ -27,3 +27,5 @@ Cargo.lock
 *.log
 central/Rocket.toml
 central/config.json
+central/.env
+central/db.sqlite
