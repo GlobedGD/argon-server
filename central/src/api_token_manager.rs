@@ -1,5 +1,5 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
-use bytebuffer::{ByteBuffer, ByteReader};
+use bytebuffer::ByteReader;
 use parking_lot::Mutex as SyncMutex;
 use std::{fmt::Display, sync::Arc};
 

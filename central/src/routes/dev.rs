@@ -15,6 +15,8 @@ use crate::{
 
 use super::routes_util::{ApiTokenGuard, CloudflareIPGuard};
 
+type ServerApiResult<T> = ApiResult<T, false>;
+
 const MAX_USERS_IN_REQUEST: usize = 50;
 
 #[derive(Serialize)]
@@ -150,7 +152,7 @@ pub async fn validation_check(
     authtoken: &str,
     ip: CloudflareIPGuard,
     api_token: ApiTokenGuard,
-) -> ApiResult<Json<ValidationResponse>> {
+) -> ServerApiResult<Json<ValidationResponse>> {
     let user_ip = ip.0;
 
     if !should_allow(rate_limiter, token_manager, &db, user_ip, api_token, 1).await? {
@@ -171,7 +173,7 @@ pub async fn validation_check_many(
     ip: CloudflareIPGuard,
     api_token: ApiTokenGuard,
     data: Json<ValidationManyData>,
-) -> ApiResult<Json<ValidationManyResponse>> {
+) -> ServerApiResult<Json<ValidationManyResponse>> {
     let user_ip = ip.0;
 
     if data.users.len() > MAX_USERS_IN_REQUEST {
@@ -299,7 +301,7 @@ pub async fn validation_check_strong(
     authtoken: &str,
     ip: CloudflareIPGuard,
     api_token: ApiTokenGuard,
-) -> ApiResult<Json<StrongValidationResponse>> {
+) -> ServerApiResult<Json<StrongValidationResponse>> {
     let user_ip = ip.0;
 
     if !should_allow(limiter, token_manager, &db, user_ip, api_token, 1).await? {
@@ -326,7 +328,7 @@ pub async fn validation_check_strong_alias(
     authtoken: &str,
     ip: CloudflareIPGuard,
     api_token: ApiTokenGuard,
-) -> ApiResult<Json<StrongValidationResponse>> {
+) -> ServerApiResult<Json<StrongValidationResponse>> {
     validation_check_strong(
         issuer,
         limiter,
@@ -351,7 +353,7 @@ pub async fn validation_check_strong_many(
     ip: CloudflareIPGuard,
     data: Json<StrongValidationManyData>,
     api_token: ApiTokenGuard,
-) -> ApiResult<Json<StrongValidationManyResponse>> {
+) -> ServerApiResult<Json<StrongValidationManyResponse>> {
     let user_ip = ip.0;
 
     if data.users.len() > MAX_USERS_IN_REQUEST {

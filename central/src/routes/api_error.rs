@@ -9,14 +9,14 @@ use serde_json::json;
 
 use crate::api_token_manager::TokenFetchError;
 
-pub struct ApiError {
+pub struct ApiError<const JsonError: bool> {
     code: u16,
     message: String,
 }
 
-pub type ApiResult<T> = Result<T, ApiError>;
+pub type ApiResult<T, const JsonError: bool> = Result<T, ApiError<JsonError>>;
 
-impl ApiError {
+impl<const JsonError: bool> ApiError<JsonError> {
     pub fn new(code: u16, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -56,7 +56,7 @@ impl ApiError {
     }
 }
 
-impl From<TokenFetchError> for ApiError {
+impl<const JsonError: bool> From<TokenFetchError> for ApiError<JsonError> {
     #[allow(unused)]
     fn from(value: TokenFetchError) -> Self {
         #[cfg(debug_assertions)]
@@ -68,20 +68,27 @@ impl From<TokenFetchError> for ApiError {
     }
 }
 
-impl Responder<'_, 'static> for ApiError {
+impl<const JsonError: bool> Responder<'_, 'static> for ApiError<JsonError> {
     fn respond_to(self, _request: &'_ Request<'_>) -> response::Result<'static> {
         let code = Status::from_code(self.code).unwrap_or(Status::BadRequest);
 
-        let message = json!({
-            "success": false,
-            "error": self.message
-        });
-
-        let body = message.to_string();
+        let body = if JsonError {
+            json!({
+                "success": false,
+                "error": self.message
+            })
+            .to_string()
+        } else {
+            self.message
+        };
 
         Response::build()
             .status(code)
-            .header(ContentType::JSON)
+            .header(if JsonError {
+                ContentType::JSON
+            } else {
+                ContentType::Text
+            })
             .sized_body(Some(body.len()), Cursor::new(body))
             .ok()
     }

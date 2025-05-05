@@ -4,6 +4,7 @@
     duration_millis_float,
     iterator_try_collect
 )]
+#![allow(non_upper_case_globals)] // tbh
 
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};

@@ -17,7 +17,7 @@ pub async fn create_token(
     description: &str,
     perday: i32,
     perhour: i32,
-) -> ApiResult<String> {
+) -> ApiResult<String, false> {
     use crate::database::NewApiToken;
 
     token_manager
@@ -42,7 +42,7 @@ async fn create_token() -> &'static str {
 }
 
 #[post("/admin/login", data = "<data>")]
-pub async fn login(state: &State<ServerState>, data: String) -> ApiResult<()> {
+pub async fn login(state: &State<ServerState>, data: String) -> ApiResult<(), false> {
     if state.state_read().await.config.secret_key == data {
         Ok(())
     } else {

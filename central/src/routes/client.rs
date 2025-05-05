@@ -47,7 +47,7 @@ impl<T: Serialize> GenericResponse<T> {
     }
 }
 
-pub type ClientApiResult<T> = ApiResult<Json<GenericResponse<T>>>;
+pub type ClientApiResult<T> = ApiResult<Json<GenericResponse<T>>, true>;
 
 #[derive(Deserialize)]
 pub struct ChallengeStartData {
