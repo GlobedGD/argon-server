@@ -5,6 +5,7 @@ use rocket::{State, post};
 use super::api_error::{ApiError, ApiResult};
 use crate::api_token_manager::ApiTokenManager;
 use crate::database::ArgonDb;
+use crate::node_handler::constant_time_compare;
 use crate::state::ServerState;
 
 #[cfg(debug_assertions)]
@@ -43,7 +44,8 @@ pub async fn create_token() -> &'static str {
 
 #[post("/admin/login", data = "<data>")]
 pub async fn login(state: &State<ServerState>, data: String) -> ApiResult<(), false> {
-    if state.state_read().await.config.secret_key == data {
+    let correct = constant_time_compare(&state.state_read().await.config.secret_key, &data);
+    if correct {
         Ok(())
     } else {
         Err(ApiError::unauthorized("invalid credentials"))
