@@ -37,7 +37,7 @@ pub async fn create_token(
 
 #[cfg(not(debug_assertions))]
 #[post("/admin/create-token")]
-async fn create_token() -> &'static str {
+pub async fn create_token() -> &'static str {
     "endpoint disabled in release builds"
 }
 
