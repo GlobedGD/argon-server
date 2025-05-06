@@ -284,7 +284,7 @@ impl ServerState {
                 let sum_2 = sum - sum_1;
 
                 info!("Hourly logs for token validation:");
-                info!("- Total validations: {sum} (from registered: {sum_2}, unregistered: {sum_1}");
+                info!("- Total validations: {sum} (from registered: {sum_2}, unregistered: {sum_1})");
 
                 // sort by number of validated tokens
                 items.sort_by_key(|(_, res)| *res);
