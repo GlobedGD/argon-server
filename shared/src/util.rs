@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use log::LevelFilter as LogLevelFilter;
 
 pub fn get_log_level(env_var: &str) -> Option<LogLevelFilter> {
