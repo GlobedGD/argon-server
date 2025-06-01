@@ -4,7 +4,7 @@ use rocket::{
     http::Status,
     request::{FromRequest, Outcome},
 };
-use std::{net::IpAddr, sync::Arc, time::Duration};
+use std::{net::IpAddr, sync::Arc};
 
 use crate::ip_blocker::IpBlocker;
 

@@ -1,9 +1,4 @@
-#![feature(
-    let_chains,
-    duration_constructors_lite,
-    duration_millis_float,
-    iterator_try_collect
-)]
+#![feature(let_chains, duration_constructors_lite, iterator_try_collect)]
 #![allow(non_upper_case_globals)] // tbh
 
 use argon_shared::{get_log_level, logger::*};

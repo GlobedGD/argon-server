@@ -1,3 +1,5 @@
+#![feature(duration_millis_float)]
+
 pub mod crypto;
 pub mod data;
 pub mod logger;
