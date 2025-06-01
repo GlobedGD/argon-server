@@ -309,6 +309,13 @@ impl NodeHandler {
 
                 // if no auth messages received recently or failures were received
                 if node.since_received_challenges() > Duration::from_secs(30) || node.get_fail_count() > 3 {
+                    warn!(
+                        "[{}] marking this node as inactive, fail count: {}, no received challenges in {}ms",
+                        node.addr,
+                        node.get_fail_count(),
+                        node.since_received_challenges().as_millis()
+                    );
+
                     node.set_active(false);
                 }
 
@@ -549,8 +556,8 @@ impl NodeHandler {
 
                 node.mark_received_challenges();
 
-                trace!(
-                    "[{}] received {} auth messages from node",
+                debug!(
+                    "[{}] received {} auth messages from node, marking as active",
                     node.addr,
                     messages.len()
                 );
