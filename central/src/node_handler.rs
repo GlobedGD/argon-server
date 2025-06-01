@@ -564,6 +564,7 @@ impl NodeHandler {
 
                 // mark node as active
                 node.set_active(true);
+                node.set_fail_count(0);
                 self.update_node_counter().await;
 
                 self.handle_auth_messages(messages).await;

@@ -363,7 +363,7 @@ impl Worker {
     }
 
     pub fn on_config_changed(&self) {
-        self.failcount.store(0, Ordering::SeqCst);
+        self.reset_failure_count();
         self.history.lock().clear();
         self.to_delete.lock().clear();
     }
