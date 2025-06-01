@@ -1,6 +1,6 @@
 #![feature(
     let_chains,
-    duration_constructors,
+    duration_constructors_lite,
     duration_millis_float,
     iterator_try_collect
 )]

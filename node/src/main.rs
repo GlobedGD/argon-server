@@ -1,4 +1,4 @@
-#![feature(let_chains, duration_constructors)]
+#![feature(let_chains, duration_constructors_lite, duration_constructors)]
 
 mod gd_client;
 mod state;
