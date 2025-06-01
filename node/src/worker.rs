@@ -11,13 +11,13 @@ use tokio::{
         Mutex as AsyncMutex,
         mpsc::{Receiver, Sender},
     },
-    time::MissedTickBehavior,
+    time::{Instant, MissedTickBehavior},
 };
 
 use crate::gd_client::{GDClient, GDMessage};
 use argon_shared::{
     MessageCode, NodeConnection, ReceiveError, SendError, WorkerAuthMessage, WorkerConfiguration,
-    WorkerError, logger::*,
+    WorkerError, format_duration, logger::*,
 };
 use parking_lot::Mutex;
 use serde_json::json;
@@ -156,9 +156,15 @@ impl Worker {
                 continue;
             }
 
+            let pre_fetch = Instant::now();
+
             match self.fetch_messages(&gd_client, self.central.as_ref()).await {
                 Ok(messages) => {
-                    debug!("received {} auth messages, processing them", messages.len());
+                    debug!(
+                        "received {} auth messages (took {}), processing them",
+                        messages.len(),
+                        format_duration(&pre_fetch.elapsed(), false)
+                    );
 
                     // process the messages
                     let auth_messages = self.process_auth_messages(messages);

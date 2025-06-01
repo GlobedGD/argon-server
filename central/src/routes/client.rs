@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use argon_shared::logger::*;
+use argon_shared::{format_duration, logger::*};
 use parking_lot::Mutex as SyncMutex;
 use rocket::{State, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
