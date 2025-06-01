@@ -55,7 +55,7 @@ pub enum GDClientError {
     RequestFailed(reqwest::Error),
     InvalidServerResponse(&'static str),
     GenericAPIError,      // -1 by boomlings
-    UnknownAPIError(i32), // other boomlings error than -1 or -2
+    UnknownAPIError(i32), // other boomlings error than -1
     BlockedIP,            // CF error 1006, IP is blocked
     BlockedProvider,      // CF error 1005, the entire provider is blocked
     BlockedGeneric(i32),  // other CF error
@@ -139,7 +139,7 @@ impl GDClient {
 
         let text = match Self::_handle_response(response).await {
             Ok(x) => x,
-            Err(GDClientError::BlockedGeneric(-2)) => return Ok(vec![]), // -2 is ok, it just means no messages
+            Err(GDClientError::UnknownAPIError(-2)) => return Ok(vec![]), // -2 is ok, it just means no messages
             Err(e) => return Err(e),
         };
 
