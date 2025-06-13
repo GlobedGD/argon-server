@@ -225,6 +225,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .mount("/", routes![routes::index])
         .manage(ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database"));
 
+    if std::env::var("ARGON_DISABLE_CORS").map_or(false, |x| x.parse::<i32>().unwrap_or(0) != 0) {
+        warn!("CORS is disabled, this is not recommended for production use");
+    } else {
+        rocket = rocket.attach(
+            rocket_cors::CorsOptions::default()
+                .allowed_origins(rocket_cors::AllowedOrigins::all())
+                .allowed_methods(vec![
+                    rocket_cors::Method::Get,
+                    rocket_cors::Method::Post,
+                    rocket_cors::Method::Put,
+                    rocket_cors::Method::Delete,
+                    rocket_cors::Method::Options,
+                ])
+                .allow_credentials(true)
+                .to_cors()?,
+        );
+    }
+
     {
         let state = state.state_read().await;
 
