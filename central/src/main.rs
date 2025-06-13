@@ -7,7 +7,7 @@ use config::ServerConfig;
 use database::ArgonDbPool;
 use node_handler::NodeHandler;
 use rand::RngCore;
-use rocket::routes;
+use rocket::{http::Method, routes};
 use state::{ServerState, ServerStateData};
 use std::{
     error::Error,
@@ -38,7 +38,7 @@ fn abort_misconfig() -> ! {
 
 fn gen_secret_key() -> String {
     let mut buf = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rng().fill_bytes(&mut buf);
     hex::encode(buf)
 }
 
@@ -231,13 +231,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rocket = rocket.attach(
             rocket_cors::CorsOptions::default()
                 .allowed_origins(rocket_cors::AllowedOrigins::all())
-                .allowed_methods(vec![
-                    rocket_cors::Method::Get,
-                    rocket_cors::Method::Post,
-                    rocket_cors::Method::Put,
-                    rocket_cors::Method::Delete,
-                    rocket_cors::Method::Options,
-                ])
+                .allowed_methods(
+                    vec![
+                        Method::Get,
+                        Method::Post,
+                        Method::Put,
+                        Method::Delete,
+                        Method::Options,
+                    ]
+                    .into_iter()
+                    .map(From::from)
+                    .collect(),
+                )
                 .allow_credentials(true)
                 .to_cors()?,
         );
