@@ -6,6 +6,7 @@ use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
 use database::ArgonDbPool;
 use node_handler::NodeHandler;
+use rand::RngCore;
 use rocket::routes;
 use state::{ServerState, ServerStateData};
 use std::{
@@ -33,6 +34,12 @@ mod token_issuer;
 fn abort_misconfig() -> ! {
     error!("aborting launch due to misconfiguration.");
     std::process::exit(1);
+}
+
+fn gen_secret_key() -> String {
+    let mut buf = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut buf);
+    hex::encode(buf)
 }
 
 #[rocket::main]
@@ -72,8 +79,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if !rocket_toml.exists() {
         info!("Creating a template Rocket.toml file");
         let mut file = tokio::fs::File::create(rocket_toml).await?;
-        file.write_all(include_bytes!("misc/Rocket.toml.template"))
-            .await?;
+
+        let data = include_str!("misc/Rocket.toml.template").to_owned();
+        let data = data.replace("$$ROCKET_SECRET_KEY$$", &gen_secret_key());
+
+        file.write_all(data.as_bytes()).await?;
     }
 
     // config file

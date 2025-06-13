@@ -53,6 +53,15 @@ impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         if metadata.target().starts_with("argon_") {
             true
+        } else if metadata.target().contains("rocket") {
+            #[cfg(debug_assertions)]
+            {
+                metadata.level() <= LogLevel::Info
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                metadata.level() <= LogLevel::Warn
+            }
         } else {
             metadata.level() <= LogLevel::Warn
         }

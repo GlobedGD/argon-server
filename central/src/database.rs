@@ -15,6 +15,7 @@ use rocket::{
     request::{FromRequest, Outcome},
 };
 use rocket_sync_db_pools::diesel;
+use serde::Serialize;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
@@ -29,7 +30,7 @@ pub struct ArgonDb {
 
 // Models
 
-#[derive(Queryable, Selectable)]
+#[derive(Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::api_tokens)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[allow(unused)]
@@ -110,6 +111,14 @@ impl ArgonDb {
             Ok(None) => Err(ArgonDbError::NotFound),
             Err(err) => Err(ArgonDbError::Database(err)),
         }
+    }
+
+    pub async fn get_all_tokens(&self) -> Result<Vec<ApiToken>, ArgonDbError> {
+        let tokens = self
+            .run(|conn| api_tokens.select(ApiToken::as_select()).load(conn))
+            .await?;
+
+        Ok(tokens)
     }
 
     pub async fn insert_token<'a>(&self, token: NewApiToken<'a>) -> Result<ApiToken, ArgonDbError> {

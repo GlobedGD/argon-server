@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::api_token_manager::TokenFetchError;
 
+#[derive(Debug, Clone)]
 pub struct ApiError<const JsonError: bool> {
     code: u16,
     message: String,

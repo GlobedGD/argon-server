@@ -14,8 +14,11 @@ pub async fn index() -> &'static str {
 
 pub fn build_routes() -> Vec<Route> {
     routes![
-        admin::create_token,
+        admin::api_create_token,
+        admin::api_tokens,
+        admin::dashboard,
         admin::login,
+        admin::logout,
         status::status,
         client::challenge_start,
         client::challenge_restart,

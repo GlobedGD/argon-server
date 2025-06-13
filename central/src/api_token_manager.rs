@@ -101,6 +101,10 @@ impl ApiTokenManager {
         db.get_token(token_id).await.map_err(TokenFetchError::Database)
     }
 
+    pub async fn get_all_tokens(&self, db: &ArgonDb) -> Result<Vec<ApiToken>, TokenFetchError> {
+        db.get_all_tokens().await.map_err(TokenFetchError::Database)
+    }
+
     fn encode_api_token(&self, token: &ApiToken) -> String {
         let token_body = token.id.to_be_bytes();
 
