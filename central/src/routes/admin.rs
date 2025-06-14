@@ -72,8 +72,8 @@ pub async fn api_tokens(
 }
 
 #[get("/admin/dash")]
-pub async fn dashboard(_db: ArgonDb, _state: &State<ServerState>, _guard: AdminTokenGuard) -> String {
-    "Well this is the dashboard".to_string()
+pub async fn dashboard(_db: ArgonDb, _state: &State<ServerState>, _guard: AdminTokenGuard) -> Redirect {
+    Redirect::to("/dashboard/index.html")
 }
 
 #[post("/admin/login", data = "<data>")]
@@ -91,11 +91,11 @@ pub async fn login(
 
     cookies.add_private(Cookie::build(("admin_token", "true")).build());
 
-    Ok(Redirect::to("/admin/dash"))
+    Ok(Redirect::to("/dashboard/dash/index.html"))
 }
 
 #[post("/admin/logout")]
 pub async fn logout(cookies: &CookieJar<'_>) -> Flash<Redirect> {
     cookies.remove_private("admin_token");
-    Flash::success(Redirect::to("/admin/login"), "You have been logged out.")
+    Flash::success(Redirect::to("/dashboard/index.html"), "You have been logged out.")
 }

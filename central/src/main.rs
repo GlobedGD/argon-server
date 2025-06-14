@@ -7,7 +7,7 @@ use config::ServerConfig;
 use database::ArgonDbPool;
 use node_handler::NodeHandler;
 use rand::RngCore;
-use rocket::{http::Method, routes};
+use rocket::{fs::FileServer, http::Method, routes};
 use state::{ServerState, ServerStateData};
 use std::{
     error::Error,
@@ -224,6 +224,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .mount("/v1/", routes::build_routes())
         .mount("/", routes![routes::index])
         .manage(ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database"));
+
+    let dashboard_path = std::env::current_dir().unwrap().join("./dashboard");
+    if dashboard_path.exists() {
+        rocket = rocket.mount("/dashboard", FileServer::from(dashboard_path));
+    }
 
     if std::env::var("ARGON_DISABLE_CORS").map_or(false, |x| x.parse::<i32>().unwrap_or(0) != 0) {
         warn!("CORS is disabled, this is not recommended for production use");
