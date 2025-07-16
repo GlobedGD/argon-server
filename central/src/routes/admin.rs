@@ -72,7 +72,7 @@ pub async fn api_tokens(
 }
 
 #[get("/admin/dash")]
-pub async fn dashboard(_db: ArgonDb, _state: &State<ServerState>, _guard: AdminTokenGuard) -> Redirect {
+pub async fn dashboard(_db: ArgonDb, _state: &State<ServerState>) -> Redirect {
     Redirect::to("/dashboard/index.html")
 }
 
