@@ -2,6 +2,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as b64e};
 use bytebuffer::ByteReader;
 use parking_lot::Mutex as SyncMutex;
 use std::{fmt::Display, sync::Arc};
+use thiserror::Error;
 
 use crate::{
     database::{ApiToken, ArgonDb, ArgonDbError, NewApiToken},
@@ -14,31 +15,23 @@ pub struct ApiTokenManager {
     rate_limiter: Arc<SyncMutex<RateLimiter>>,
 }
 
+#[derive(Error, Debug)]
 pub enum TokenFetchError {
+    #[error("mismatched ident (token was made with a different Argon server)")]
     MismatchedIdent,
+    #[error("malformed token structure")]
     MalformedToken,
+    #[error("invalid signature")]
     InvalidSignature,
-    Database(ArgonDbError),
+    #[error("database error: {0}")]
+    Database(#[from] ArgonDbError),
+    #[error("database pool error")]
+    DatabasePoolError,
 }
 
 impl From<std::io::Error> for TokenFetchError {
     fn from(_: std::io::Error) -> Self {
         Self::MalformedToken
-    }
-}
-
-impl Display for TokenFetchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MismatchedIdent => write!(
-                f,
-                "mismatched ident (token was made with a different Argon server)"
-            ),
-
-            Self::MalformedToken => write!(f, "malformed token structure"),
-            Self::InvalidSignature => write!(f, "invalid signature"),
-            Self::Database(err) => write!(f, "database error: {err}"),
-        }
     }
 }
 
@@ -67,6 +60,18 @@ impl ApiTokenManager {
     ) -> Result<bool, TokenFetchError> {
         let token_id = self.validate_api_token(token)?;
 
+        self.validate_tokens_session(token_id, async || Ok(db), count)
+            .await
+    }
+
+    /// Like `validate_tokens`, but a token ID is passed instead of the token
+    /// Also the database is queried lazily
+    pub async fn validate_tokens_session<'f, F: AsyncFnOnce() -> Result<&'f ArgonDb, &'static str>>(
+        &self,
+        token_id: i32,
+        db_fn: F,
+        count: usize,
+    ) -> Result<bool, TokenFetchError> {
         {
             let mut rl = self.rate_limiter.lock();
 
@@ -77,7 +82,12 @@ impl ApiTokenManager {
             }
         }
 
-        let api_token = self.get_token_data_by_id(db, token_id).await?;
+        let api_token = self
+            .get_token_data_by_id(
+                db_fn().await.map_err(|_| TokenFetchError::DatabasePoolError)?,
+                token_id,
+            )
+            .await?;
 
         let mut rl = self.rate_limiter.lock();
         rl.add_registered_token(&api_token);
@@ -117,7 +127,7 @@ impl ApiTokenManager {
     }
 
     // returns token ID if token is valid
-    fn validate_api_token(&self, token: &str) -> Result<i32, TokenFetchError> {
+    pub fn validate_api_token(&self, token: &str) -> Result<i32, TokenFetchError> {
         let (token_ident, rest) = token.split_once('.').ok_or(TokenFetchError::MalformedToken)?;
 
         if token_ident != self.ident {

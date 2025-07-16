@@ -1,5 +1,15 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct ServerStatusResponse {
+    pub active: bool,
+    pub total_nodes: usize,
+    pub active_nodes: usize,
+    pub ident: String,
+}
+
 pub struct ServerHealthState {
     nodes: AtomicUsize,
     active: AtomicUsize,
@@ -33,5 +43,14 @@ impl ServerHealthState {
 
     pub fn set_active_node_count(&self, n: usize) {
         self.active.store(n, Ordering::SeqCst);
+    }
+
+    pub fn status(&self) -> ServerStatusResponse {
+        ServerStatusResponse {
+            active: self.is_active(),
+            total_nodes: self.node_count(),
+            active_nodes: self.active_node_count(),
+            ident: self.ident.clone(),
+        }
     }
 }

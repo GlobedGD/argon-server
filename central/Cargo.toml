@@ -30,6 +30,10 @@ diesel = { version = "2.2.0", features = [
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
 rocket_cors = "0.6.0"
+rocket_ws = "0.1.1"
+thiserror = "2.0.12"
+zstd = "0.13.3"
+bytes = "1.10.1"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

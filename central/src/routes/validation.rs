@@ -1,4 +1,4 @@
-use std::{net::IpAddr, sync::Arc};
+use std::{fmt::Debug, net::IpAddr, sync::Arc};
 
 use argon_shared::logger::*;
 use parking_lot::Mutex as SyncMutex;
@@ -17,40 +17,40 @@ use super::routes_util::{ApiTokenGuard, CloudflareIPGuard};
 
 type ServerApiResult<T> = ApiResult<T, false>;
 
-const MAX_USERS_IN_REQUEST: usize = 50;
+pub const MAX_USERS_IN_REQUEST: usize = 50;
 
-#[derive(Serialize)]
-pub struct WithId<T: Serialize> {
+#[derive(Serialize, Debug, Clone)]
+pub struct WithId<T: Serialize + Debug + Clone> {
     pub id: i32,
     #[serde(flatten)]
     pub value: T,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ValidationResponse {
     pub valid: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct UserAuthData {
     #[serde(rename = "id")]
     pub account_id: i32,
     pub token: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ValidationManyData {
     pub users: Vec<UserAuthData>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct ValidationManyResponse {
     pub users: Vec<WithId<ValidationResponse>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct StrongValidationResponse {
     pub valid: bool,
     pub valid_weak: bool,
@@ -60,7 +60,7 @@ pub struct StrongValidationResponse {
     pub username: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct StrongUserAuthData {
     #[serde(rename = "id")]
     pub account_id: i32,
@@ -69,14 +69,34 @@ pub struct StrongUserAuthData {
     pub token: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct StrongValidationManyData {
     pub users: Vec<StrongUserAuthData>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct StrongValidationManyResponse {
     pub users: Vec<WithId<StrongValidationResponse>>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CheckDataManyData {
+    pub users: Vec<UserAuthData>,
+}
+
+// god this name sucks
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct UserCheckResponse {
+    pub valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+    pub user_id: Option<i32>,
+    pub username: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct CheckDataManyResponse {
+    pub users: Vec<WithId<UserCheckResponse>>,
 }
 
 async fn should_allow(
@@ -94,7 +114,7 @@ async fn should_allow(
     }
 }
 
-fn validate_one_weak(
+pub fn validate_one_weak(
     issuer: &TokenIssuer,
     user_ip: IpAddr,
     account_id: i32,
@@ -208,7 +228,7 @@ pub async fn validation_check_many(
     Ok(Json(response))
 }
 
-fn validate_one_strong(
+pub fn validate_one_strong(
     issuer: &TokenIssuer,
     user_ip: IpAddr,
     account_id: i32,
@@ -386,6 +406,96 @@ pub async fn validation_check_strong_many(
             account.name.as_deref(),
             &account.token,
         );
+
+        response.users.push(WithId {
+            id: account.account_id,
+            value: res,
+        });
+    }
+
+    Ok(Json(response))
+}
+
+pub fn validate_one_check(
+    issuer: &TokenIssuer,
+    user_ip: IpAddr,
+    account_id: i32,
+    token: &str,
+) -> UserCheckResponse {
+    match issuer.validate(token) {
+        Ok(data) => {
+            if data.account_id != account_id {
+                debug!(
+                    "[{user_ip}] (Check) token for {account_id} not valid, reason: mismatched account ID (token was for {})",
+                    data.account_id,
+                );
+
+                UserCheckResponse {
+                    valid: false,
+                    cause: Some(format!(
+                        "token was not generated for this account (account ID {}, but expected {account_id})",
+                        data.account_id
+                    )),
+                    ..Default::default()
+                }
+            } else {
+                debug!(
+                    "[{user_ip}] (Check) token for {} ({}) validated",
+                    data.username, data.account_id
+                );
+
+                UserCheckResponse {
+                    valid: true,
+                    cause: None,
+                    user_id: Some(data.user_id),
+                    username: Some(data.username),
+                }
+            }
+        }
+
+        Err(e) => UserCheckResponse {
+            valid: false,
+            cause: Some(format!("validation failure: {e}")),
+            ..Default::default()
+        },
+    }
+}
+
+#[post("/validation/check-data-many", data = "<data>")]
+pub async fn validation_check_data_many(
+    issuer: &State<Arc<TokenIssuer>>,
+    limiter: &State<Arc<SyncMutex<RateLimiter>>>,
+    token_manager: &State<Arc<ApiTokenManager>>,
+    db: ArgonDb,
+    ip: CloudflareIPGuard,
+    data: Json<CheckDataManyData>,
+    api_token: ApiTokenGuard,
+) -> ServerApiResult<Json<CheckDataManyResponse>> {
+    let user_ip = ip.0;
+
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        debug!(
+            "[{user_ip}] (Check) tried validating {} tokens, rejecting",
+            data.users.len()
+        );
+
+        return Err(ApiError::bad_request("too many users in the request"));
+    }
+
+    debug!("[{user_ip}] (Check) validating {} tokens", data.users.len());
+
+    if !should_allow(limiter, token_manager, &db, user_ip, api_token, data.users.len()).await? {
+        warn!("[{user_ip}] disallowing token validation, rate limit exceeded");
+
+        return Err(ApiError::too_many_requests("rate limit exceeded"));
+    }
+
+    let mut response = CheckDataManyResponse {
+        users: Vec::with_capacity(data.users.len()),
+    };
+
+    for account in &data.users {
+        let res = validate_one_check(issuer, user_ip, account.account_id, &account.token);
 
         response.users.push(WithId {
             id: account.account_id,

@@ -16,6 +16,7 @@ use rocket::{
 };
 use rocket_sync_db_pools::diesel;
 use serde::Serialize;
+use thiserror::Error;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
@@ -53,31 +54,19 @@ pub struct NewApiToken<'a> {
     pub validations_per_hour: i32,
 }
 
+#[derive(Error, Debug)]
 pub enum ArgonDbError {
-    Database(diesel::result::Error),
+    #[error("diesel error: {0}")]
+    Database(#[from] diesel::result::Error),
+    #[error("row not found")]
     NotFound,
-}
-
-impl From<diesel::result::Error> for ArgonDbError {
-    fn from(value: diesel::result::Error) -> Self {
-        Self::Database(value)
-    }
-}
-
-impl Display for ArgonDbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound => write!(f, "row not found"),
-            Self::Database(err) => write!(f, "diesel error: {err}"),
-        }
-    }
 }
 
 // Main database impl
 
 impl ArgonDb {
     pub async fn get_one<P: Phase>(rocket: &Rocket<P>) -> Result<ArgonDb, Status> {
-        match rocket.state::<ArgonDbPool>() {
+        match rocket.state::<Arc<ArgonDbPool>>() {
             Some(p) => match p.get_one().await {
                 Ok(conn) => Ok(conn),
                 _ => Err(Status::ServiceUnavailable),

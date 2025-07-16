@@ -30,3 +30,4 @@ central/diesel.toml
 central/config.json
 central/.env
 central/db.sqlite
+central/dashboard

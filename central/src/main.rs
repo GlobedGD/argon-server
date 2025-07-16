@@ -219,18 +219,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start rocket
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://db.sqlite".to_owned());
+    let database = ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database");
+    let database = Arc::new(database);
 
     let mut rocket = rocket::build()
-        .mount("/v1/", routes::build_routes())
+        .mount("/v1/", routes::build_v1_routes())
         .mount("/", routes![routes::index])
-        .manage(ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database"));
+        .manage(database);
 
     let dashboard_path = std::env::current_dir().unwrap().join("./dashboard");
     if dashboard_path.exists() {
         rocket = rocket.mount("/dashboard", FileServer::from(dashboard_path));
     }
 
-    if std::env::var("ARGON_DISABLE_CORS").map_or(false, |x| x.parse::<i32>().unwrap_or(0) != 0) {
+    if std::env::var("ARGON_DISABLE_CORS").is_ok_and(|x| x.parse::<i32>().unwrap_or(0) != 0) {
         warn!("CORS is disabled, this is not recommended for production use");
     } else {
         rocket = rocket.attach(
