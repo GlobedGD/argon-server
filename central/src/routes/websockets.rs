@@ -193,13 +193,13 @@ impl WsState {
                 serde_json::to_value(r).map_err(WsHandleError::Serialization)?
             }
             WsMessageData::ValidateResponse(r) => {
-                serde_json::to_value(r).map_err(WsHandleError::Serialization)?
+                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
             }
             WsMessageData::ValidateStrongResponse(r) => {
-                serde_json::to_value(r).map_err(WsHandleError::Serialization)?
+                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
             }
             WsMessageData::ValidateCheckDataManyResponse(r) => {
-                serde_json::to_value(r).map_err(WsHandleError::Serialization)?
+                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
             }
         };
 
