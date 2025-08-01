@@ -553,6 +553,11 @@ impl WsState {
             return self.encode_message_with(&WsMessageData::AuthAck, WsProtocol::Json);
         }
 
+        // if this is a ping message, respond with a pong
+        if let ws::Message::Ping(msg) = msg {
+            return Ok(ws::Message::Pong(msg));
+        }
+
         let msg = self.decode_message(msg)?;
 
         match msg {
