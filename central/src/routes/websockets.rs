@@ -26,6 +26,8 @@ enum WsHandleError {
     Unauthorized,
     #[error("Invalid API token provided, please read the WebSockets section in the server documentation")]
     InvalidAuth,
+    #[error("Other message than Auth was sent as the first message")]
+    ExpectedAuth,
     #[error("Invalid or malformed request received: {0}")]
     InvalidRequest(&'static str),
     #[error("Failed to serialize response: {0}")]
@@ -348,6 +350,14 @@ impl WsState {
                 Ok(WsMessageData::ValidateStrong(WsMessageValidateStrong { items }))
             }
 
+            "ValidateCheckDataMany" => {
+                let items: Vec<UserAuthData> =
+                    serde_json::from_value(data["data"].clone()).map_err(WsHandleError::Deserialization)?;
+                Ok(WsMessageData::ValidateCheckDataMany(
+                    WsMessageValidateCheckDataMany { items },
+                ))
+            }
+
             _ => Err(WsHandleError::InvalidRequest("unknown client-side message type")),
         }
     }
@@ -357,7 +367,7 @@ impl WsState {
         let msg_type = bytes.try_get_u8()?;
 
         let read_str = |bytes: &mut Bytes| -> Result<String, WsHandleError> {
-            let len = bytes.try_get_u16()? as usize;
+            let len = bytes.try_get_u16()?.to_be() as usize;
             if bytes.remaining() < len {
                 return Err(WsHandleError::InvalidRequest(
                     "invalid string length in binary message",
@@ -372,7 +382,7 @@ impl WsState {
             bytes: &mut Bytes,
             decode_fn: F,
         ) -> Result<Vec<T>, WsHandleError> {
-            let length = bytes.try_get_u16()? as usize;
+            let length = bytes.try_get_u16()?.to_be() as usize;
             let mut output = Vec::new();
 
             for _ in 0..length {
@@ -400,7 +410,7 @@ impl WsState {
             // 7 = Validate
             7 => {
                 let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?;
+                    let account_id = b.try_get_i32()?.to_be();
                     let token = read_str(b)?;
 
                     Ok(UserAuthData {
@@ -415,9 +425,9 @@ impl WsState {
             // 9 = ValidateStrong
             9 => {
                 let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?;
+                    let account_id = b.try_get_i32()?.to_be();
                     let user_id = if b.try_get_u8()? != 0 {
-                        Some(b.try_get_i32()?)
+                        Some(b.try_get_i32()?.to_be())
                     } else {
                         None
                     };
@@ -446,7 +456,7 @@ impl WsState {
             // 13 = ValidateCheckDataMany
             13 => {
                 let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?;
+                    let account_id = b.try_get_i32()?.to_be();
                     let token = read_str(b)?;
 
                     Ok(UserAuthData {
@@ -579,12 +589,17 @@ impl WsState {
             ws::Message::Text(x) => x,
             _ => {
                 debug!("[{}] Websocket client sent a non-text auth message", self.user_ip);
-                return Err(WsHandleError::Unauthorized);
+                return Err(WsHandleError::ExpectedAuth);
             }
         };
 
+        let val: serde_json::Value = json_data.parse().map_err(WsHandleError::Deserialization)?;
+        if val["type"].as_str().unwrap_or_default() != "Auth" {
+            return Err(WsHandleError::ExpectedAuth);
+        }
+
         let auth_data: WsMessageAuth =
-            serde_json::from_str(json_data).map_err(WsHandleError::Deserialization)?;
+            serde_json::from_value(val["data"].clone()).map_err(WsHandleError::Deserialization)?;
 
         self.token_id = Some(
             self.token_manager
