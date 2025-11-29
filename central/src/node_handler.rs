@@ -360,34 +360,34 @@ impl NodeHandler {
 
             // loop again, assign gd accounts to nodes that don't have them
             for node in &*nodes {
-                if node.wants_account() {
-                    if let Some(account) = self.pick_account_for_bot(&nodes).await {
-                        let state = self.server_state.state_read().await;
+                if node.wants_account()
+                    && let Some(account) = self.pick_account_for_bot(&nodes).await
+                {
+                    let state = self.server_state.state_read().await;
 
-                        info!("assigning account {} to node {}", account.id, node.addr);
+                    info!("assigning account {} to node {}", account.id, node.addr);
 
-                        node.used_account_id.store(account.id, Ordering::SeqCst);
-                        node.mark_account_switch();
-                        if let Err(err) = node
-                            .conn
-                            .send_message(
-                                MessageCode::RefreshConfig,
-                                &WorkerConfiguration {
-                                    account_id: account.id,
-                                    account_gjp: account.gjp,
-                                    base_url: state.config.base_url.clone(),
-                                    msg_check_interval: state.config.msg_check_interval,
-                                },
-                            )
-                            .await
-                        {
-                            warn!(
-                                "[{}] failed to send RefreshConfig message to node, terminating it: {err}",
-                                node.addr
-                            );
+                    node.used_account_id.store(account.id, Ordering::SeqCst);
+                    node.mark_account_switch();
+                    if let Err(err) = node
+                        .conn
+                        .send_message(
+                            MessageCode::RefreshConfig,
+                            &WorkerConfiguration {
+                                account_id: account.id,
+                                account_gjp: account.gjp,
+                                base_url: state.config.base_url.clone(),
+                                msg_check_interval: state.config.msg_check_interval,
+                            },
+                        )
+                        .await
+                    {
+                        warn!(
+                            "[{}] failed to send RefreshConfig message to node, terminating it: {err}",
+                            node.addr
+                        );
 
-                            node.terminating.store(true, Ordering::SeqCst);
-                        }
+                        node.terminating.store(true, Ordering::SeqCst);
                     }
                 }
             }

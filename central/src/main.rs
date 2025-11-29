@@ -1,5 +1,5 @@
-#![feature(let_chains, duration_constructors_lite, iterator_try_collect)]
-#![allow(non_upper_case_globals)] // tbh
+#![feature(iterator_try_collect)]
+#![allow(non_upper_case_globals, clippy::too_many_arguments)] // tbh
 
 use argon_shared::{get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};

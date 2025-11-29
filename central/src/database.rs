@@ -1,4 +1,4 @@
-use std::{fmt::Display, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::schema::api_tokens::{dsl::api_tokens, table as api_tokens_table};
 use argon_shared::{debug, error, info, warn};

@@ -60,6 +60,7 @@ pub struct ChallengeStartData {
     pub force_strong: bool,
     #[serde(rename = "reqMod", default = "default_empty_string")]
     pub req_mod: String,
+    #[allow(unused)]
     #[serde(default = "default_preferred_auth_method")]
     pub preferred: String,
 }

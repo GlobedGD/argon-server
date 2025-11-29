@@ -21,6 +21,7 @@ use super::routes_util::CloudflareIPGuard;
 use rocket_ws as ws;
 
 #[derive(Debug, Error)]
+#[allow(unused)]
 enum WsHandleError {
     #[error("Cannot perform this action while unauthorized")]
     Unauthorized,
@@ -88,6 +89,7 @@ struct WsMessageValidateCheckDataManyResponse {
 }
 
 enum WsMessageData {
+    #[allow(unused)]
     Auth(WsMessageAuth),
     AuthAck,
     FatalError(WsMessageError),
