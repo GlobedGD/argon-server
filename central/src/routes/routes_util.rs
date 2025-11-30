@@ -82,6 +82,20 @@ impl<'r> FromRequest<'r> for ApiTokenGuard {
     }
 }
 
+pub struct UserAgentGuard<'r>(pub &'r str);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for UserAgentGuard<'r> {
+    type Error = &'static str;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        match request.headers().get_one("User-Agent") {
+            Some(x) => Outcome::Success(UserAgentGuard(x)),
+            None => Outcome::Error((Status::BadRequest, "missing User-Agent header")),
+        }
+    }
+}
+
 pub fn default_false() -> bool {
     false
 }

@@ -1,12 +1,23 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    net::IpAddr,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use crate::schema::api_tokens::{dsl::api_tokens, table as api_tokens_table};
+use crate::schema::{
+    api_tokens::{dsl::api_tokens, table as api_tokens_table},
+    request_meta::{self as request_meta_schema, table as request_meta_table},
+    token_logs,
+};
 use argon_shared::{debug, error, info, warn};
 use diesel::{
     Connection, RunQueryDsl, SqliteConnection,
     connection::SimpleConnection,
+    expression::AsExpression,
     prelude::*,
     r2d2::{self, ConnectionManager, CustomizeConnection, Pool, PooledConnection},
+    serialize::ToSql,
+    sql_types,
 };
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use rocket::{
@@ -52,6 +63,30 @@ pub struct NewApiToken<'a> {
     pub description: &'a str,
     pub validations_per_day: i32,
     pub validations_per_hour: i32,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = crate::schema::request_meta)]
+pub struct NewRequestMeta<'a> {
+    pub user_agent: &'a str,
+    pub mod_id: &'a str,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = crate::schema::token_logs)]
+struct NewTokenLog {
+    pub ip: CustomIpAddr,
+    pub timestamp: i64,
+    pub time_taken_ms: i32,
+    pub meta_id: i32,
+}
+
+pub struct TokenLog {
+    pub ip: IpAddr,
+    pub time: SystemTime,
+    pub time_taken: Duration,
+    pub user_agent: String,
+    pub mod_id: String,
 }
 
 #[derive(Error, Debug)]
@@ -121,6 +156,66 @@ impl ArgonDb {
             .await?;
 
         Ok(token)
+    }
+
+    pub async fn insert_token_logs(&self, logs: Vec<TokenLog>) -> Result<(), ArgonDbError> {
+        let mut new_logs = Vec::with_capacity(logs.len());
+
+        for log in logs.iter() {
+            let timestamp = log.time.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+            let time_taken_ms = log.time_taken.as_millis().try_into().unwrap_or(i32::MAX);
+            let ip = CustomIpAddr::new(log.ip);
+
+            let meta_id = self
+                .run(|conn| {
+                    let ent = NewRequestMeta {
+                        user_agent: &log.user_agent,
+                        mod_id: &log.mod_id,
+                    };
+
+                    diesel::insert_into(request_meta_table)
+                        .values(ent)
+                        .on_conflict((request_meta_schema::user_agent, request_meta_schema::mod_id))
+                        .do_update()
+                        .set(request_meta_schema::rowid.eq(request_meta_schema::rowid))
+                        .returning(request_meta_schema::rowid)
+                        .get_result::<i32>(conn)
+                })
+                .await?;
+
+            new_logs.push(NewTokenLog {
+                ip,
+                timestamp,
+                time_taken_ms,
+                meta_id,
+            });
+        }
+
+        self.run(|conn| {
+            diesel::insert_into(crate::schema::token_logs::table)
+                .values(&new_logs[0])
+                .execute(conn)
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn delete_old_token_logs(&self, older_than: Duration) -> Result<usize, ArgonDbError> {
+        let cutoff = SystemTime::now()
+            .checked_sub(older_than)
+            .unwrap_or(UNIX_EPOCH)
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let deleted = self
+            .run(|conn| {
+                diesel::delete(token_logs::table.filter(token_logs::timestamp.lt(cutoff))).execute(conn)
+            })
+            .await?;
+
+        Ok(deleted)
     }
 }
 
@@ -259,5 +354,37 @@ impl<'r> FromRequest<'r> for ArgonDb {
             Ok(conn) => Outcome::Success(conn),
             Err(status) => Outcome::Error((status, ())),
         }
+    }
+}
+
+#[derive(Debug, AsExpression)]
+#[diesel(sql_type = sql_types::Binary)]
+struct CustomIpAddr([u8; 16], bool);
+
+impl CustomIpAddr {
+    pub fn new(ip: IpAddr) -> Self {
+        let mut buf = [0u8; 16];
+
+        match ip {
+            IpAddr::V4(addr) => {
+                buf[..4].copy_from_slice(&addr.octets());
+            }
+            IpAddr::V6(addr) => {
+                buf.copy_from_slice(&addr.octets());
+            }
+        };
+
+        CustomIpAddr(buf, matches!(ip, IpAddr::V6(_)))
+    }
+}
+
+impl ToSql<sql_types::Binary, diesel::sqlite::Sqlite> for CustomIpAddr {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
+        let ip_bytes = if self.1 { &self.0 } else { &self.0[..4] };
+
+        <[u8] as diesel::serialize::ToSql<sql_types::Binary, diesel::sqlite::Sqlite>>::to_sql(ip_bytes, out)
     }
 }

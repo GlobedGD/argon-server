@@ -41,6 +41,10 @@ fn default_string() -> String {
     String::new()
 }
 
+fn default_log_retention() -> u32 {
+    60 * 60 * 24 * 30 // 30 days
+}
+
 fn gen_secret_key() -> String {
     hex::encode(generate_keypair().0.to_bytes())
 }
@@ -94,6 +98,10 @@ pub struct ServerConfig {
     pub secret_key: String,
     #[serde(default = "default_false")]
     pub cloudflare_protection: bool,
+    #[serde(default = "default_false")]
+    pub enable_anonymous_logs: bool,
+    #[serde(default = "default_log_retention")]
+    pub log_retention: u32,
 
     // rate limit stuff
     #[serde(default)]

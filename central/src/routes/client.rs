@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use argon_shared::{format_duration, logger::*};
 use parking_lot::Mutex as SyncMutex;
@@ -6,6 +6,7 @@ use rocket::{State, post, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    database::TokenLog,
     rate_limiter::RateLimiter,
     routes::{
         api_error::{ApiError, ApiResult},
@@ -107,6 +108,7 @@ pub async fn challenge_start(
         data.user_id,
         data.username.clone(),
         data.force_strong,
+        data.req_mod.clone(),
     ) {
         Ok(c) => c,
         Err(err) => return Err(ApiError::bad_request(err.to_string())),
@@ -174,6 +176,7 @@ pub struct ChallengeVerifyResponse {
     poll_after: Option<u32>,
 }
 
+#[allow(clippy::await_holding_lock)] // it's literally wrong
 #[post("/challenge/verify", data = "<data>")]
 pub async fn challenge_verify(
     rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
@@ -181,6 +184,7 @@ pub async fn challenge_verify(
     state: &State<ServerState>,
     data: Json<ChallengeVerifyData>,
     ip: CloudflareIPGuard,
+    user_agent: UserAgentGuard<'_>,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
     let user_ip = ip.0;
 
@@ -270,13 +274,24 @@ pub async fn challenge_verify(
     }
 
     let token = issuer.generate(&challenge);
+    let time_taken = challenge.started_at.elapsed().unwrap_or_default();
+
+    state
+        .submit_token_log(TokenLog {
+            ip: user_ip,
+            time: SystemTime::now(),
+            time_taken,
+            mod_id: challenge.requested_mod,
+            user_agent: user_agent.0.to_owned(),
+        })
+        .await;
 
     if strong {
         info!(
             "[{} @ {user_ip}] Created strong token for {} (auth flow took {})",
             challenge.account_id,
             challenge.actual_username,
-            format_duration(&challenge.started_at.elapsed().unwrap_or_default(), false)
+            format_duration(&time_taken, false)
         );
     } else {
         info!(
@@ -303,6 +318,7 @@ pub async fn challenge_verify_poll(
     state: &State<ServerState>,
     data: Json<ChallengeVerifyData>,
     ip: CloudflareIPGuard,
+    user_agent: UserAgentGuard<'_>,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
-    challenge_verify(rate_limiter, issuer, state, data, ip).await
+    challenge_verify(rate_limiter, issuer, state, data, ip, user_agent).await
 }

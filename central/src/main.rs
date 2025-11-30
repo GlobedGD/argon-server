@@ -150,9 +150,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         abort_misconfig();
     }
 
+    // create db
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://db.sqlite".to_owned());
+    let database = ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database");
+    let database = Arc::new(database);
+
     // create state
 
-    let ssd = ServerStateData::new(config_path.clone(), config);
+    let ssd = ServerStateData::new(config_path.clone(), config, database.clone());
     let state = ServerState::new(ssd);
 
     let node_handler = match NodeHandler::new(handler_addr, state.clone()).await {
@@ -224,10 +229,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cl_state.run_cleanup_loop().await;
     });
 
+    // start the token log worker
+    let tl_state = state.clone();
+    tokio::spawn(async move {
+        tl_state.run_token_log_worker().await;
+    });
+
     // start rocket
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://db.sqlite".to_owned());
-    let database = ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database");
-    let database = Arc::new(database);
 
     let mut rocket = rocket::build()
         .mount("/v1/", routes::build_v1_routes())
