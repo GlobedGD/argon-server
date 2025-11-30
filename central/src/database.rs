@@ -193,7 +193,7 @@ impl ArgonDb {
 
         self.run(|conn| {
             diesel::insert_into(crate::schema::token_logs::table)
-                .values(&new_logs[0])
+                .values(&new_logs)
                 .execute(conn)
         })
         .await?;
