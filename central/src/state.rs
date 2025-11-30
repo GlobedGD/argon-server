@@ -209,7 +209,11 @@ impl ServerStateData {
     }
 
     pub async fn submit_token_log(&self, log: TokenLog) {
-        let _ = self.token_log_tx.send(log).await;
+        if !self.config.enable_anonymous_logs {
+            return;
+        }
+
+        let _ = self.token_log_tx.try_send(log);
     }
 
     pub fn make_challenge_answer(challenge: i32) -> i32 {
