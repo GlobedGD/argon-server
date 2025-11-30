@@ -226,10 +226,10 @@ pub fn do_run_migrations(url: &str) -> Result<(), diesel::ConnectionError> {
 
     let mut conn = SqliteConnection::establish(url)?;
 
-    // also turn on wal
-    diesel::sql_query("PRAGMA journal_mode=wal")
+    // also turn off wal
+    diesel::sql_query("PRAGMA journal_mode=DELETE;")
         .execute(&mut conn)
-        .expect("Failed to turn on WAL");
+        .expect("Failed to turn off WAL");
 
     match conn.run_pending_migrations(MIGRATIONS).map(|v| v.len()) {
         Ok(migs) if migs != 0 => {
