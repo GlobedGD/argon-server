@@ -388,6 +388,11 @@ impl NodeConnection {
 
         let length = stream.read_u32().await? as usize;
 
+        if length > 1024 * 1024 {
+            // disallow messages larger than 1 MB
+            return Err(ReceiveError::InvalidStructure);
+        }
+
         let mut buffer = self.buffer.lock().await;
 
         if buffer.len() < length {
