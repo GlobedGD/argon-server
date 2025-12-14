@@ -31,12 +31,9 @@ mod schema;
 mod state;
 mod token_issuer;
 
-#[cfg(all(not(target_env = "msvc"), not(debug_assertions)))]
-use tikv_jemallocator::Jemalloc;
-
-#[cfg(all(not(target_env = "msvc"), not(debug_assertions)))]
+#[cfg(all(feature = "jemalloc", not(target_env = "msvc"), not(debug_assertions)))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn abort_misconfig() -> ! {
     error!("aborting launch due to misconfiguration.");
