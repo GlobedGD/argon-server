@@ -201,6 +201,7 @@ impl Worker {
         }
     }
 
+    #[allow(clippy::collapsible_if)]
     async fn fetch_messages(
         &self,
         client: &GDClient,

@@ -177,8 +177,8 @@ impl ArgonDb {
                         .values(ent)
                         .on_conflict((request_meta_schema::user_agent, request_meta_schema::mod_id))
                         .do_update()
-                        .set(request_meta_schema::rowid.eq(request_meta_schema::rowid))
-                        .returning(request_meta_schema::rowid)
+                        .set(request_meta_schema::id.eq(request_meta_schema::id))
+                        .returning(request_meta_schema::id)
                         .get_result::<i32>(conn)
                 })
                 .await?;

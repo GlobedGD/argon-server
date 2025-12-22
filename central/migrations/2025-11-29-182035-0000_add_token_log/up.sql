@@ -1,4 +1,5 @@
 CREATE TABLE request_meta (
+    id INTEGER NOT NULL PRIMARY KEY,
     user_agent TEXT NOT NULL,
     mod_id TEXT NOT NULL,
     UNIQUE(user_agent, mod_id)

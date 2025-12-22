@@ -12,8 +12,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    request_meta (rowid) {
-        rowid -> Integer,
+    request_meta (id) {
+        id -> Integer,
         user_agent -> Text,
         mod_id -> Text,
     }
