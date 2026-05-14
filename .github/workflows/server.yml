@@ -1,116 +1,187 @@
-name: Build Argon server
+name: Build Globed server
+
+# needed to push to ghcr
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
 
 on:
   workflow_dispatch:
   push:
+    paths-ignore:
+      - '**.md'
+      - 'rustfmt.toml'
+      - '.gitignore'
+      - '.gitattributes'
+      - 'LICENSE'
 
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - name: Linux
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            bin-suffix: "-x64"
-
-          - name: Linux ARM64
-            os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            bin-suffix: "-arm64"
-
-          - name: Windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin-suffix: ".exe"
+        - platform: linux/amd64
+          arch: amd64
+        - platform: linux/arm64
+          arch: arm64
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY@L}" >> $GITHUB_ENV
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          toolchain: nightly
-          target: ${{ matrix.target }}
+          images: ${{ env.GHCR_IMAGE }}
 
-      - name: Add Rust target
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: rustup target add ${{ matrix.target }}
-        shell: bash
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install cross
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          rustup target add x86_64-unknown-linux-gnu
-          cargo install cross
-        shell: bash
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build node (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: |
-          cargo build --release --target ${{ matrix.target }} -p argon-node
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          cache-from: type=gha,scope=argon-server-linux-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,compression=zstd,compression-level=8,scope=argon-server-linux-${{ matrix.arch }}
+          outputs: |
+            type=image,push-by-digest=true,name-canonical=true,push=true
+            type=local,dest=out
+          target: runtime-debian
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.GHCR_IMAGE }}
         env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
-        shell: bash
+          DOCKER_BUILD_SUMMARY: false
 
-      - name: Build node (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Export digest
         run: |
-          cross build --release --target ${{ matrix.target }} -p argon-node
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
-        shell: bash
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
-      - name: Build central (native)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Prepare artifacts
         run: |
-          cargo build --release --target ${{ matrix.target }} -p argon-server
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
-        shell: bash
-
-      - name: Build central (cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          cross build --release --target ${{ matrix.target }} -p argon-server
-        env:
-          CARGO_NET_GIT_FETCH_WITH_CLI: true
-        shell: bash
-
-      - name: Create artifacts folder
-        run: mkdir -p artifacts
-        shell: bash
-
-      - name: Copy artifacts (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          cp target/${{ matrix.target }}/release/argon-node.exe artifacts/argon-node${{ matrix.bin-suffix }} || :
-          cp target/${{ matrix.target }}/release/argon-server.exe artifacts/argon-central${{ matrix.bin-suffix }} || :
-        shell: bash
-
-      - name: Copy artifacts (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cp target/${{ matrix.target }}/release/argon-node artifacts/argon-node${{ matrix.bin-suffix }} || :
-          cp target/${{ matrix.target }}/release/argon-server artifacts/argon-central${{ matrix.bin-suffix }} || :
-        shell: bash
+          mkdir -p artifacts
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            cp out/argon-server artifacts/argon-server-x64
+            cp out/argon-node artifacts/argon-node-x64
+          else
+            cp out/argon-server artifacts/argon-server-arm64
+            cp out/argon-node artifacts/argon-node-arm64
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}-build
+          name: linux-${{ matrix.arch }}
           path: artifacts/*
 
-  merge:
-    name: Merge artifacts
-    runs-on: ubuntu-latest
-    needs: build
+  windows:
+    name: Windows
+    runs-on: windows-latest
     steps:
-      - name: Merge artifacts
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-05-01
+          target: x86_64-pc-windows-msvc
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: |
+          cargo build --release --features all,mimalloc --target x86_64-pc-windows-msvc
+        env:
+          SERVER_SHARED_PREBUILT_DATA: 1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: target/x86_64-pc-windows-msvc/release/*.exe
+
+  merge:
+    name: Merge artifacts and digests
+    runs-on: ubuntu-latest
+    needs: [linux, windows]
+    steps:
+      - name: Convert repository to lowercase
+        run: |
+          echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY@L}" >> $GITHUB_ENV
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:${{ steps.meta.outputs.version }}
+
+      - name: Merge server binaries
         uses: actions/upload-artifact/merge@v4
         with:
           name: argon-server-build
           delete-merged: true
+          pattern: '!digests-*'
+
+      - name: Delete digests
+        uses: GeekyEggo/delete-artifact@v5.1.0
+        with:
+          name: 'digests-*'
