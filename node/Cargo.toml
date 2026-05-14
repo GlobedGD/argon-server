@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.102"
 argon-shared = { path = "../shared" }
 base64 = "0.22.1"
-colored = "3.0.0"
+colored = "3.1.1"
 itertools = "0.14.0"
 nohash-hasher = "0.2.0"
-parking_lot = "0.12.3"
-reqwest = { version = "0.12.15", default-features = false, features = [
+parking_lot = "0.12.5"
+reqwest = { version = "0.13.3", default-features = false, features = [
     "http2",
-    "rustls-tls",
+    "rustls",
 ] }
-serde_json = "1.0.140"
-time = { version = "0.3.41", features = ["formatting"] }
-tokio = { version = "1.44.1", features = ["full"] }
+serde_json = "1.0.149"
+time = { version = "0.3.47", features = ["formatting"] }
+tokio = { version = "1.52.3", features = ["full"] }
