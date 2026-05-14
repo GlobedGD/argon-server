@@ -1,7 +1,7 @@
 #![feature(iterator_try_collect)]
 #![allow(non_upper_case_globals, clippy::too_many_arguments)] // tbh
 
-use argon_shared::{get_log_level, logger::*};
+use argon_shared::{data_dir, get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
 use database::ArgonDbPool;
@@ -66,10 +66,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // create Rocket.toml if it doesn't exist
-    let rocket_toml = std::env::var("ROCKET_CONFIG").map_or_else(
-        |_| std::env::current_dir().unwrap().join("Rocket.toml"),
-        PathBuf::from,
-    );
+    let rocket_toml =
+        std::env::var("ROCKET_CONFIG").map_or_else(|_| data_dir().join("Rocket.toml"), PathBuf::from);
 
     if rocket_toml.file_name().is_none_or(|x| x != "Rocket.toml")
         || !rocket_toml.parent().is_some_and(Path::exists)
@@ -91,8 +89,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // config file
 
-    let mut config_path =
-        std::env::var("ARGON_CONFIG_PATH").map_or_else(|_| std::env::current_dir().unwrap(), PathBuf::from);
+    let mut config_path = std::env::var("ARGON_CONFIG_PATH").map_or_else(|_| data_dir(), PathBuf::from);
 
     if config_path.is_dir() {
         config_path = config_path.join("config.json");
@@ -238,7 +235,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .mount("/", routes![routes::index])
         .manage(database);
 
-    let dashboard_path = std::env::current_dir().unwrap().join("./dashboard");
+    let dashboard_path = data_dir().join("./dashboard");
     if dashboard_path.exists() {
         rocket = rocket.mount("/dashboard", FileServer::from(dashboard_path));
     }

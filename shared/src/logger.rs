@@ -12,6 +12,8 @@ use time::{OffsetDateTime, format_description};
 pub use log;
 pub use log::{Level as LogLevel, LevelFilter as LogLevelFilter, Log, debug, error, info, trace, warn};
 
+use crate::data_dir;
+
 pub struct Logger {
     pub format_desc: Vec<format_description::FormatItem<'static>>,
     file_writer: Option<SyncMutex<BufWriter<File>>>,
@@ -27,11 +29,7 @@ impl Logger {
         INSTANCE.get_or_init(|| Self {
             format_desc: format_description::parse_borrowed::<2>(TIME_FORMAT).unwrap(),
             file_writer: if write_to_file {
-                let file = File::create(
-                    std::env::current_dir()
-                        .unwrap()
-                        .join(format!("{self_crate_name}.log")),
-                );
+                let file = File::create(data_dir().join(format!("{self_crate_name}.log")));
 
                 if let Ok(file) = file {
                     Some(SyncMutex::new(BufWriter::with_capacity(

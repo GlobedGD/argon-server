@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use log::LevelFilter as LogLevelFilter;
 
@@ -39,5 +39,13 @@ pub fn format_duration(dur: &Duration, long: bool) -> String {
     } else {
         let ms = dur.as_millis_f64();
         format!("{ms:.3}{}", if long { " milliseconds" } else { "ms" })
+    }
+}
+
+pub fn data_dir() -> PathBuf {
+    if std::env::var("INSIDE_DOCKER").is_ok_and(|v| v != "0") {
+        PathBuf::from("/data")
+    } else {
+        std::env::current_dir().unwrap()
     }
 }
