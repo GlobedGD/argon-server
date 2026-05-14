@@ -5,7 +5,7 @@ use std::{
 
 use argon_shared::generate_keypair;
 use json_comments::StripComments;
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use serde_json::{Serializer, ser::PrettyFormatter};
 

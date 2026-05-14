@@ -6,7 +6,6 @@ use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
 use database::ArgonDbPool;
 use node_handler::NodeHandler;
-use rand::RngCore;
 use rocket::{fs::FileServer, http::Method, routes};
 use state::{ServerState, ServerStateData};
 use std::{
@@ -42,7 +41,7 @@ fn abort_misconfig() -> ! {
 
 fn gen_secret_key() -> String {
     let mut buf = [0u8; 32];
-    rand::rng().fill_bytes(&mut buf);
+    rand::fill(&mut buf);
     hex::encode(buf)
 }
 

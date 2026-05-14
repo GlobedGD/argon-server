@@ -8,7 +8,6 @@ use std::{
 use argon_shared::{WorkerAuthMessage, logger::*};
 use nohash_hasher::IntMap;
 use parking_lot::Mutex as SyncMutex;
-use rand::Rng;
 use tokio::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc},
     time::MissedTickBehavior,
@@ -116,8 +115,8 @@ impl ServerStateData {
         force_strong: bool,
         requested_mod: String,
     ) -> anyhow::Result<(u32, i32)> {
-        let challenge_value = rand::rng().random::<i32>();
-        let challenge_id = rand::rng().random::<u32>();
+        let challenge_value = rand::random::<i32>();
+        let challenge_id = rand::random::<u32>();
         let answer = Self::make_challenge_answer(challenge_value);
 
         let challenge = AuthChallenge {

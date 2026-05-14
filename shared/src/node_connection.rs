@@ -186,9 +186,6 @@ pub struct NodeConnection {
 impl NodeConnection {
     pub fn new(stream: TcpStream) -> Self {
         stream.set_nodelay(true).expect("failed to set TCP_NODELAY");
-        stream
-            .set_linger(Some(Duration::from_secs(1)))
-            .expect("failed to set SO_LINGER");
 
         let (read, write) = stream.into_split();
 

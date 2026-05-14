@@ -11,10 +11,7 @@ colored = "3.1.1"
 itertools = "0.14.0"
 nohash-hasher = "0.2.0"
 parking_lot = "0.12.5"
-reqwest = { version = "0.13.3", default-features = false, features = [
-    "http2",
-    "rustls",
-] }
+reqwest = { version = "0.13.3", features = ["form"] }
 serde_json = "1.0.149"
 time = { version = "0.3.47", features = ["formatting"] }
 tokio = { version = "1.52.3", features = ["full"] }
