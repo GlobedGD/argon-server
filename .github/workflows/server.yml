@@ -117,7 +117,7 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release --features all,mimalloc --target x86_64-pc-windows-msvc
+          cargo build --release --target x86_64-pc-windows-msvc
         env:
           SERVER_SHARED_PREBUILT_DATA: 1
 
