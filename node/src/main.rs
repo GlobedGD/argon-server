@@ -28,6 +28,10 @@ fn get_next_arg(args: &mut std::env::Args) -> String {
 async fn main() -> anyhow::Result<()> {
     // setup logger
 
+    if std::env::var("INSIDE_DOCKER").is_ok_and(|v| v != "0") {
+        std::env::set_current_dir("/data")?;
+    }
+
     let write_to_file = std::env::var("ARGON_NODE_NO_FILE_LOG")
         .map(|p| p.parse::<i32>().unwrap())
         .unwrap_or(0)
