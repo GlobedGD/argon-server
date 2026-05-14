@@ -1,4 +1,4 @@
-name: Build Globed server
+name: Build Argon server
 
 # needed to push to ghcr
 permissions:
