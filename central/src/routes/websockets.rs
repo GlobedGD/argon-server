@@ -1,9 +1,14 @@
-use std::{fmt::Write, io::Cursor, net::IpAddr, sync::Arc};
+use std::{io::Cursor, net::IpAddr, sync::Arc};
 
 use argon_shared::logger::*;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
-use rocket::{State, get};
+use rocket::{
+    State,
+    futures::{SinkExt, StreamExt},
+    get,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
@@ -18,136 +23,345 @@ use crate::{
 };
 
 use super::routes_util::CloudflareIPGuard;
-use rocket_ws as ws;
+use rocket_ws::{self as ws, stream::DuplexStream};
+
+const MSG_AUTH: u8 = 1;
+const MSG_AUTH_ACK: u8 = 2;
+const MSG_FATAL_ERROR: u8 = 3;
+const MSG_ERROR: u8 = 4;
+const MSG_STATUS: u8 = 5;
+const MSG_STATUS_RESPONSE: u8 = 6;
+const MSG_VALIDATE: u8 = 7;
+const MSG_VALIDATE_RESPONSE: u8 = 8;
+const MSG_VALIDATE_STRONG: u8 = 9;
+const MSG_VALIDATE_STRONG_RESPONSE: u8 = 10;
+const MSG_VALIDATE_CHECK_DATA_MANY: u8 = 13;
+const MSG_VALIDATE_CHECK_DATA_MANY_RESPONSE: u8 = 14;
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+enum WsProtocol {
+    #[serde(rename = "json")]
+    Json,
+    #[serde(rename = "json-zstd")]
+    JsonZstd,
+    #[serde(rename = "binary-v1")]
+    Binary,
+}
 
 #[derive(Debug, Error)]
-#[allow(unused)]
-enum WsHandleError {
+enum HandleError {
     #[error("Cannot perform this action while unauthorized")]
     Unauthorized,
     #[error("Invalid API token provided, please read the WebSockets section in the server documentation")]
     InvalidAuth,
-    #[error("Other message than Auth was sent as the first message")]
-    ExpectedAuth,
     #[error("Invalid or malformed request received: {0}")]
     InvalidRequest(&'static str),
-    #[error("Failed to serialize response: {0}")]
-    Serialization(serde_json::Error),
-    #[error("Failed to deserialize response: {0}")]
-    Deserialization(serde_json::Error),
+    #[error("Failed to serialize/deserialize response: {0}")]
+    Serialization(#[from] serde_json::Error),
+    #[error("Failed to decode binary response: {0}")]
+    BinaryDecode(#[from] TryGetError),
     #[error("Failed to compress response: {0}")]
     Compression(std::io::Error),
-    // #[error("Websocket error: {0}")]
-    // Websocket(#[from] ws::result::Error),
-}
-
-impl From<TryGetError> for WsHandleError {
-    fn from(_: TryGetError) -> Self {
-        Self::InvalidRequest("malformed binary message, could not properly decode data")
-    }
+    #[error("{0}")]
+    Other(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct WsMessageAuth {
+struct AuthMessage {
     token: String,
-    proto: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct WsMessageError {
-    error: String,
+    proto: WsProtocol,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct WsMessageValidate {
+struct ValidateMessage {
     items: Vec<UserAuthData>,
 }
 
 #[derive(Serialize, Debug, Clone)]
-struct WsMessageValidateResponse {
+struct ValidateResponseMessage {
     items: Vec<WithId<ValidationResponse>>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct WsMessageValidateStrong {
+struct ValidateStrongMessage {
     items: Vec<StrongUserAuthData>,
 }
 
 #[derive(Serialize, Debug, Clone)]
-struct WsMessageValidateStrongResponse {
+struct ValidateStrongResponseMessage {
     items: Vec<WithId<StrongValidationResponse>>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct WsMessageValidateCheckDataMany {
+struct ValidateCheckDataManyMessage {
     items: Vec<UserAuthData>,
 }
 
 #[derive(Serialize, Debug, Clone)]
-struct WsMessageValidateCheckDataManyResponse {
+struct ValidateCheckDataManyResponseMessage {
     items: Vec<WithId<UserCheckResponse>>,
 }
 
-enum WsMessageData {
-    #[allow(unused)]
-    Auth(WsMessageAuth),
-    AuthAck,
-    FatalError(WsMessageError),
-    Error(WsMessageError),
+enum ClientMessage {
+    Auth(AuthMessage),
     Status,
+    Validate(ValidateMessage),
+    ValidateStrong(ValidateStrongMessage),
+    ValidateCheckDataMany(ValidateCheckDataManyMessage),
+}
+
+impl ClientMessage {
+    pub fn decode_json(msg: &Value) -> Result<Self, HandleError> {
+        let r#type = msg["type"]
+            .as_str()
+            .ok_or(HandleError::InvalidRequest("missing or invalid type"))?;
+
+        match r#type {
+            "Auth" => {
+                let data: AuthMessage = serde_json::from_value(msg["data"].clone())?;
+                Ok(ClientMessage::Auth(data))
+            }
+
+            "Status" => Ok(ClientMessage::Status),
+
+            "Validate" => {
+                let items: Vec<UserAuthData> = serde_json::from_value(msg["data"].clone())?;
+                Ok(ClientMessage::Validate(ValidateMessage { items }))
+            }
+
+            "ValidateStrong" => {
+                let items: Vec<StrongUserAuthData> = serde_json::from_value(msg["data"].clone())?;
+                Ok(ClientMessage::ValidateStrong(ValidateStrongMessage { items }))
+            }
+
+            "ValidateCheckDataMany" => {
+                let items: Vec<UserAuthData> = serde_json::from_value(msg["data"].clone())?;
+                Ok(ClientMessage::ValidateCheckDataMany(
+                    ValidateCheckDataManyMessage { items },
+                ))
+            }
+
+            _ => Err(HandleError::InvalidRequest("unknown message type")),
+        }
+    }
+
+    pub fn decode_binary(data: &[u8]) -> Result<Self, HandleError> {
+        let mut buf = Bytes::copy_from_slice(data);
+        let msg_type = buf.try_get_u8()?;
+
+        match msg_type {
+            MSG_AUTH => Err(HandleError::InvalidRequest("Auth message can only be json")),
+
+            MSG_STATUS => Ok(Self::Status),
+
+            MSG_VALIDATE => {
+                let items = Self::read_vec(&mut buf, |b| {
+                    let account_id = b.try_get_i32_le()?;
+                    let token = Self::read_string(b)?;
+
+                    Ok(UserAuthData { account_id, token })
+                })?;
+
+                Ok(Self::Validate(ValidateMessage { items }))
+            }
+
+            MSG_VALIDATE_STRONG => {
+                let elems = Self::read_vec(&mut buf, |b| {
+                    let account_id = b.try_get_i32_le()?;
+                    let user_id = if b.try_get_u8()? != 0 {
+                        Some(b.try_get_i32_le()?)
+                    } else {
+                        None
+                    };
+
+                    let name = if b.try_get_u8()? != 0 {
+                        Some(Self::read_string(b)?)
+                    } else {
+                        None
+                    };
+
+                    let token = Self::read_string(b)?;
+
+                    Ok(StrongUserAuthData {
+                        account_id,
+                        token,
+                        name,
+                        user_id,
+                    })
+                })?;
+
+                Ok(ClientMessage::ValidateStrong(ValidateStrongMessage {
+                    items: elems,
+                }))
+            }
+
+            MSG_VALIDATE_CHECK_DATA_MANY => {
+                let elems = Self::read_vec(&mut buf, |b| {
+                    let account_id = b.try_get_i32_le()?;
+                    let token = Self::read_string(b)?;
+
+                    Ok(UserAuthData { account_id, token })
+                })?;
+
+                Ok(ClientMessage::ValidateCheckDataMany(
+                    ValidateCheckDataManyMessage { items: elems },
+                ))
+            }
+
+            _ => Err(HandleError::InvalidRequest("unknown message type")),
+        }
+    }
+
+    fn read_string(buf: &mut Bytes) -> Result<String, HandleError> {
+        let len = buf.try_get_u16_le()? as usize;
+
+        if buf.remaining() < len {
+            return Err(HandleError::InvalidRequest("not enough bytes for string"));
+        }
+
+        let str_data = buf.copy_to_bytes(len);
+        Ok(String::from_utf8_lossy(&str_data).to_string())
+    }
+
+    fn read_vec<T, F: Fn(&mut Bytes) -> Result<T, HandleError>>(
+        bytes: &mut Bytes,
+        decode_fn: F,
+    ) -> Result<Vec<T>, HandleError> {
+        let length = bytes.try_get_u16_le()? as usize;
+        let mut output = Vec::new();
+
+        for _ in 0..length {
+            output.push(decode_fn(bytes)?);
+        }
+
+        Ok(output)
+    }
+}
+
+enum ServerMessage {
+    FatalError(String),
+    Error(String),
+    AuthAck,
     StatusResponse(ServerStatusResponse),
-    Validate(WsMessageValidate),
-    ValidateResponse(WsMessageValidateResponse),
-    ValidateStrong(WsMessageValidateStrong),
-    ValidateStrongResponse(WsMessageValidateStrongResponse),
-    ValidateCheckDataMany(WsMessageValidateCheckDataMany),
-    ValidateCheckDataManyResponse(WsMessageValidateCheckDataManyResponse),
+    ValidateResponse(ValidateResponseMessage),
+    ValidateStrongResponse(ValidateStrongResponseMessage),
+    ValidateCheckDataManyResponse(ValidateCheckDataManyResponseMessage),
 }
 
-impl WsMessageData {
-    fn type_name(&self) -> &'static str {
+impl ServerMessage {
+    pub fn numeric_id(&self) -> u8 {
         match self {
-            WsMessageData::Auth(_) => "Auth",
-            WsMessageData::AuthAck => "AuthAck",
-            WsMessageData::FatalError(_) => "FatalError",
-            WsMessageData::Error(_) => "Error",
-            WsMessageData::Status => "Status",
-            WsMessageData::StatusResponse(_) => "StatusResponse",
-            WsMessageData::Validate(_) => "Validate",
-            WsMessageData::ValidateResponse(_) => "ValidateResponse",
-            WsMessageData::ValidateStrong(_) => "ValidateStrong",
-            WsMessageData::ValidateStrongResponse(_) => "ValidateStrongResponse",
-            WsMessageData::ValidateCheckDataMany(_) => "ValidateCheckDataMany",
-            WsMessageData::ValidateCheckDataManyResponse(_) => "ValidateCheckDataManyResponse",
+            ServerMessage::FatalError(_) => MSG_FATAL_ERROR,
+            ServerMessage::Error(_) => MSG_ERROR,
+            ServerMessage::AuthAck => MSG_AUTH_ACK,
+            ServerMessage::StatusResponse(_) => MSG_STATUS_RESPONSE,
+            ServerMessage::ValidateResponse(_) => MSG_VALIDATE_RESPONSE,
+            ServerMessage::ValidateStrongResponse(_) => MSG_VALIDATE_STRONG_RESPONSE,
+            ServerMessage::ValidateCheckDataManyResponse(_) => MSG_VALIDATE_CHECK_DATA_MANY_RESPONSE,
         }
     }
 
-    fn numeric_id(&self) -> u8 {
+    pub fn type_name(&self) -> &'static str {
         match self {
-            Self::Auth(_) => 1,
-            Self::AuthAck => 2,
-            Self::FatalError(_) => 3,
-            Self::Error(_) => 4,
-            Self::Status => 5,
-            Self::StatusResponse(_) => 6,
-            Self::Validate(_) => 7,
-            Self::ValidateResponse(_) => 8,
-            Self::ValidateStrong(_) => 9,
-            Self::ValidateStrongResponse(_) => 10,
-            Self::ValidateCheckDataMany(_) => 13,
-            Self::ValidateCheckDataManyResponse(_) => 14,
+            ServerMessage::FatalError(_) => "FatalError",
+            ServerMessage::Error(_) => "Error",
+            ServerMessage::AuthAck => "AuthAck",
+            ServerMessage::StatusResponse(_) => "StatusResponse",
+            ServerMessage::ValidateResponse(_) => "ValidateResponse",
+            ServerMessage::ValidateStrongResponse(_) => "ValidateStrongResponse",
+            ServerMessage::ValidateCheckDataManyResponse(_) => "ValidateCheckDataManyResponse",
         }
+    }
+
+    pub fn encode_json(&self) -> Result<Value, HandleError> {
+        Ok(match self {
+            ServerMessage::AuthAck => serde_json::Value::Null,
+            ServerMessage::StatusResponse(msg) => serde_json::to_value(msg)?,
+
+            ServerMessage::ValidateResponse(msg) => serde_json::to_value(&msg.items)?,
+            ServerMessage::ValidateStrongResponse(msg) => serde_json::to_value(&msg.items)?,
+            ServerMessage::ValidateCheckDataManyResponse(msg) => serde_json::to_value(&msg.items)?,
+
+            ServerMessage::FatalError(msg) | ServerMessage::Error(msg) => {
+                serde_json::json!({ "error": msg })
+            }
+        })
+    }
+
+    pub fn encode_binary(&self, buf: &mut BytesMut) {
+        match &self {
+            &Self::AuthAck => {}
+            &Self::Error(e) | &Self::FatalError(e) => {
+                Self::write_string(buf, e);
+            }
+
+            &Self::StatusResponse(r) => {
+                buf.put_u8(r.active as u8);
+                buf.put_i32_le(r.total_nodes as i32);
+                buf.put_i32_le(r.active_nodes as i32);
+                Self::write_string(buf, &r.ident);
+            }
+
+            &Self::ValidateResponse(r) => {
+                buf.put_u16_le(r.items.len() as u16);
+
+                for item in &r.items {
+                    buf.put_i32_le(item.id);
+                    buf.put_u8(item.value.valid as u8);
+
+                    if let Some(cause) = &item.value.cause {
+                        Self::write_string(buf, cause);
+                    }
+                }
+            }
+
+            &Self::ValidateStrongResponse(r) => {
+                buf.put_u16_le(r.items.len() as u16);
+                for item in &r.items {
+                    buf.put_i32_le(item.id);
+                    buf.put_u8(item.value.valid as u8);
+                    buf.put_u8(item.value.valid_weak as u8);
+
+                    if let Some(cause) = &item.value.cause {
+                        assert!(!item.value.valid);
+                        Self::write_string(buf, cause);
+                    }
+
+                    if let Some(username) = &item.value.username {
+                        assert!(item.value.valid);
+                        Self::write_string(buf, username);
+                    }
+                }
+            }
+
+            &Self::ValidateCheckDataManyResponse(r) => {
+                buf.put_u16_le(r.items.len() as u16);
+                for item in &r.items {
+                    buf.put_i32_le(item.id);
+                    buf.put_u8(item.value.valid as u8);
+
+                    if let Some(cause) = &item.value.cause {
+                        assert!(!item.value.valid);
+                        Self::write_string(buf, cause);
+                    } else {
+                        assert!(item.value.valid);
+                        let user_id = item.value.user_id.unwrap_or(0);
+                        buf.put_i32_le(user_id);
+                        Self::write_string(buf, item.value.username.as_deref().unwrap_or(""));
+                    }
+                }
+            }
+        }
+    }
+
+    fn write_string(buf: &mut BytesMut, s: &str) {
+        let bytes = s.as_bytes();
+        buf.put_u16_le(bytes.len() as u16);
+        buf.put_slice(bytes);
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum WsProtocol {
-    Json,
-    JsonZstd,
-    Binary,
-}
-
-struct WsState {
+struct ClientConnection {
     protocol: WsProtocol,
     token_id: Option<i32>,
     token_manager: Arc<ApiTokenManager>,
@@ -155,494 +369,94 @@ struct WsState {
     token_issuer: Arc<TokenIssuer>,
     db_pool: Arc<ArgonDbPool>,
     user_ip: IpAddr,
+    stream: DuplexStream,
+    closed: bool,
 }
 
-impl WsState {
-    pub fn new(
-        token_manager: Arc<ApiTokenManager>,
-        health_state: Arc<ServerHealthState>,
-        token_issuer: Arc<TokenIssuer>,
-        db_pool: Arc<ArgonDbPool>,
-        user_ip: IpAddr,
-    ) -> Self {
-        Self {
-            protocol: WsProtocol::Json,
-            token_id: None,
-            token_manager,
-            health_state,
-            token_issuer,
-            db_pool,
-            user_ip,
-        }
-    }
-
-    fn encode_message_json(&self, data: &WsMessageData) -> Result<serde_json::Value, WsHandleError> {
-        let data_val = match data {
-            // these types are never encoded by the server
-            WsMessageData::Auth(_)
-            | WsMessageData::Status
-            | WsMessageData::Validate(_)
-            | WsMessageData::ValidateStrong(_)
-            | WsMessageData::ValidateCheckDataMany(_) => {
-                unreachable!("this message type should never be encoded by the server")
+impl ClientConnection {
+    pub async fn run_loop(&mut self) -> anyhow::Result<()> {
+        while !self.closed
+            && let Some(msg) = self.stream.next().await
+        {
+            let msg = msg?;
+            if msg.is_ping() {
+                continue;
             }
 
-            WsMessageData::AuthAck => serde_json::Value::Null,
-            WsMessageData::Error(e) | WsMessageData::FatalError(e) => {
-                serde_json::json!({ "error": e.error })
-            }
-            WsMessageData::StatusResponse(r) => {
-                serde_json::to_value(r).map_err(WsHandleError::Serialization)?
-            }
-            WsMessageData::ValidateResponse(r) => {
-                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
-            }
-            WsMessageData::ValidateStrongResponse(r) => {
-                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
-            }
-            WsMessageData::ValidateCheckDataManyResponse(r) => {
-                serde_json::to_value(&r.items).map_err(WsHandleError::Serialization)?
-            }
-        };
-
-        Ok(serde_json::json!({
-            "type": data.type_name(),
-            "data": data_val,
-        }))
-    }
-
-    fn encode_message_binary(&self, data: &WsMessageData) -> Result<Vec<u8>, WsHandleError> {
-        let mut bytes = BytesMut::with_capacity(128);
-        bytes.put_u8(data.numeric_id());
-
-        let write_str = |bytes: &mut BytesMut, s: &str| -> () {
-            bytes.put_u16((s.len() as u16).to_be());
-            let _ = bytes.write_str(s);
-        };
-
-        match data {
-            WsMessageData::Auth(_)
-            | WsMessageData::Status
-            | WsMessageData::Validate(_)
-            | WsMessageData::ValidateStrong(_)
-            | WsMessageData::ValidateCheckDataMany(_) => {
-                unreachable!("this message type should never be encoded by the server")
-            }
-
-            WsMessageData::AuthAck => {}
-            WsMessageData::Error(e) | WsMessageData::FatalError(e) => {
-                write_str(&mut bytes, &e.error);
-            }
-            WsMessageData::StatusResponse(r) => {
-                bytes.put_u8(r.active as u8);
-                bytes.put_i32((r.total_nodes as i32).to_be());
-                bytes.put_i32((r.active_nodes as i32).to_be());
-                write_str(&mut bytes, &r.ident);
-            }
-            WsMessageData::ValidateResponse(r) => {
-                bytes.put_u16((r.items.len() as u16).to_be());
-                for item in &r.items {
-                    bytes.put_i32(item.id.to_be());
-                    bytes.put_u8(item.value.valid as u8);
-
-                    if let Some(cause) = &item.value.cause {
-                        write_str(&mut bytes, cause);
-                    }
+            let msg = match decode_message(&msg, self.protocol) {
+                Ok(m) => m,
+                Err(e) => {
+                    let msg = self.fatal_error(&e.to_string())?;
+                    self.stream.send(msg).await?;
+                    break;
                 }
-            }
-            WsMessageData::ValidateStrongResponse(r) => {
-                bytes.put_u16((r.items.len() as u16).to_be());
-                for item in &r.items {
-                    bytes.put_i32(item.id.to_be());
-                    bytes.put_u8(item.value.valid as u8);
-                    bytes.put_u8(item.value.valid_weak as u8);
+            };
 
-                    if let Some(cause) = &item.value.cause {
-                        assert!(!item.value.valid);
-                        write_str(&mut bytes, cause);
-                    }
+            let message = match self.handle_message(msg).await {
+                Ok(msg) => encode_message(&msg, self.protocol)?,
 
-                    if let Some(username) = &item.value.username {
-                        assert!(item.value.valid);
-                        write_str(&mut bytes, username);
-                    }
+                Err(err @ HandleError::Unauthorized) | Err(err @ HandleError::InvalidAuth) => {
+                    // fatal error
+                    self.fatal_error(&err.to_string())?
                 }
-            }
-            WsMessageData::ValidateCheckDataManyResponse(r) => {
-                bytes.put_u16((r.items.len() as u16).to_be());
-                for item in &r.items {
-                    bytes.put_i32(item.id.to_be());
-                    bytes.put_u8(item.value.valid as u8);
 
-                    if let Some(cause) = &item.value.cause {
-                        assert!(!item.value.valid);
-                        write_str(&mut bytes, cause);
-                    } else {
-                        assert!(item.value.valid);
-                        let user_id = item.value.user_id.unwrap_or(0);
-                        bytes.put_i32(user_id.to_be());
-                        write_str(&mut bytes, item.value.username.as_deref().unwrap_or(""));
-                    }
+                Err(err) => {
+                    warn!("[{}] error handling ws message: {err}", self.user_ip);
+                    encode_error(&err.to_string(), self.protocol)?
                 }
-            }
-        };
+            };
 
-        Ok(bytes.to_vec())
-    }
-
-    fn encode_message_with(
-        &self,
-        data: &WsMessageData,
-        protocol: WsProtocol,
-    ) -> Result<ws::Message, WsHandleError> {
-        match protocol {
-            WsProtocol::Json => {
-                let val = self.encode_message_json(data)?;
-                Ok(ws::Message::Text(
-                    serde_json::to_string(&val).map_err(WsHandleError::Serialization)?,
-                ))
-            }
-
-            WsProtocol::JsonZstd => {
-                let val = self.encode_message_json(data)?;
-
-                let json_str = serde_json::to_string(&val).map_err(WsHandleError::Serialization)?;
-                let mut out_vec = Vec::new();
-
-                zstd::stream::copy_encode(Cursor::new(json_str), &mut out_vec, 0)
-                    .map_err(WsHandleError::Compression)?;
-
-                Ok(ws::Message::Binary(out_vec))
-            }
-
-            WsProtocol::Binary => {
-                let bin_data = self.encode_message_binary(data)?;
-                Ok(ws::Message::Binary(bin_data))
-            }
+            self.stream.send(message).await?;
         }
-    }
-
-    fn encode_message(&self, data: &WsMessageData) -> Result<ws::Message, WsHandleError> {
-        self.encode_message_with(data, self.protocol)
-    }
-
-    fn decode_message_json(&self, data: &serde_json::Value) -> Result<WsMessageData, WsHandleError> {
-        let r#type = data["type"]
-            .as_str()
-            .ok_or(WsHandleError::InvalidRequest("missing or invalid type"))?;
-
-        match r#type {
-            "Auth" => {
-                let auth_data: WsMessageAuth =
-                    serde_json::from_value(data["data"].clone()).map_err(WsHandleError::Deserialization)?;
-                Ok(WsMessageData::Auth(auth_data))
-            }
-
-            "Status" => Ok(WsMessageData::Status),
-
-            "Validate" => {
-                let items: Vec<UserAuthData> =
-                    serde_json::from_value(data["data"].clone()).map_err(WsHandleError::Deserialization)?;
-                Ok(WsMessageData::Validate(WsMessageValidate { items }))
-            }
-
-            "ValidateStrong" => {
-                let items: Vec<StrongUserAuthData> =
-                    serde_json::from_value(data["data"].clone()).map_err(WsHandleError::Deserialization)?;
-                Ok(WsMessageData::ValidateStrong(WsMessageValidateStrong { items }))
-            }
-
-            "ValidateCheckDataMany" => {
-                let items: Vec<UserAuthData> =
-                    serde_json::from_value(data["data"].clone()).map_err(WsHandleError::Deserialization)?;
-                Ok(WsMessageData::ValidateCheckDataMany(
-                    WsMessageValidateCheckDataMany { items },
-                ))
-            }
-
-            _ => Err(WsHandleError::InvalidRequest("unknown client-side message type")),
-        }
-    }
-
-    fn decode_message_binary(&self, data: Vec<u8>) -> Result<WsMessageData, WsHandleError> {
-        let mut bytes = Bytes::from(data);
-        let msg_type = bytes.try_get_u8()?;
-
-        let read_str = |bytes: &mut Bytes| -> Result<String, WsHandleError> {
-            let len = bytes.try_get_u16()?.to_be() as usize;
-            if bytes.remaining() < len {
-                return Err(WsHandleError::InvalidRequest(
-                    "invalid string length in binary message",
-                ));
-            }
-
-            let str_data = bytes.copy_to_bytes(len);
-            Ok(String::from_utf8_lossy(str_data.as_ref()).to_string())
-        };
-
-        fn read_vec<T, F: Fn(&mut Bytes) -> Result<T, WsHandleError>>(
-            bytes: &mut Bytes,
-            decode_fn: F,
-        ) -> Result<Vec<T>, WsHandleError> {
-            let length = bytes.try_get_u16()?.to_be() as usize;
-            let mut output = Vec::new();
-
-            for _ in 0..length {
-                output.push(decode_fn(bytes)?);
-            }
-
-            Ok(output)
-        }
-
-        match msg_type {
-            // 1 = Auth
-            1 => {
-                let token = read_str(&mut bytes)?;
-                let proto = read_str(&mut bytes)?;
-
-                Ok(WsMessageData::Auth(WsMessageAuth {
-                    token: token.to_string(),
-                    proto: proto.to_string(),
-                }))
-            }
-
-            // 5 = Status
-            5 => Ok(WsMessageData::Status),
-
-            // 7 = Validate
-            7 => {
-                let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?.to_be();
-                    let token = read_str(b)?;
-
-                    Ok(UserAuthData {
-                        account_id,
-                        token: token.to_string(),
-                    })
-                })?;
-
-                Ok(WsMessageData::Validate(WsMessageValidate { items: elems }))
-            }
-
-            // 9 = ValidateStrong
-            9 => {
-                let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?.to_be();
-                    let user_id = if b.try_get_u8()? != 0 {
-                        Some(b.try_get_i32()?.to_be())
-                    } else {
-                        None
-                    };
-
-                    let user_name = if b.try_get_u8()? != 0 {
-                        Some(read_str(b)?.to_string())
-                    } else {
-                        None
-                    };
-
-                    let token = read_str(b)?;
-
-                    Ok(StrongUserAuthData {
-                        account_id,
-                        token: token.to_string(),
-                        name: user_name,
-                        user_id,
-                    })
-                })?;
-
-                Ok(WsMessageData::ValidateStrong(WsMessageValidateStrong {
-                    items: elems,
-                }))
-            }
-
-            // 13 = ValidateCheckDataMany
-            13 => {
-                let elems = read_vec(&mut bytes, |b| {
-                    let account_id = b.try_get_i32()?.to_be();
-                    let token = read_str(b)?;
-
-                    Ok(UserAuthData {
-                        account_id,
-                        token: token.to_string(),
-                    })
-                })?;
-
-                Ok(WsMessageData::ValidateCheckDataMany(
-                    WsMessageValidateCheckDataMany { items: elems },
-                ))
-            }
-
-            _ => Err(WsHandleError::InvalidRequest("unknown message type")),
-        }
-    }
-
-    fn decode_message_with(
-        &self,
-        data: ws::Message,
-        protocol: WsProtocol,
-    ) -> Result<WsMessageData, WsHandleError> {
-        match protocol {
-            WsProtocol::Json => {
-                let text = match data {
-                    ws::Message::Text(text) => text,
-                    _ => {
-                        return Err(WsHandleError::InvalidRequest(
-                            "expected text message when using json protocol",
-                        ));
-                    }
-                };
-
-                self.decode_message_json(
-                    &serde_json::from_str::<serde_json::Value>(&text)
-                        .map_err(WsHandleError::Deserialization)?,
-                )
-            }
-
-            WsProtocol::JsonZstd => {
-                let bin_data = match data {
-                    ws::Message::Binary(bin) => bin,
-                    _ => {
-                        return Err(WsHandleError::InvalidRequest(
-                            "expected binary message when using json-zstd protocol",
-                        ));
-                    }
-                };
-
-                let mut out_vec = Vec::new();
-                zstd::stream::copy_decode(Cursor::new(bin_data), &mut out_vec)
-                    .map_err(WsHandleError::Compression)?;
-
-                let text = String::from_utf8(out_vec)
-                    .map_err(|_| WsHandleError::InvalidRequest("invalid utf-8 in json-zstd message"))?;
-
-                self.decode_message_json(
-                    &serde_json::from_str::<serde_json::Value>(&text)
-                        .map_err(WsHandleError::Deserialization)?,
-                )
-            }
-
-            WsProtocol::Binary => {
-                let bin_data = match data {
-                    ws::Message::Binary(bin) => bin,
-                    _ => {
-                        return Err(WsHandleError::InvalidRequest(
-                            "expected binary message when using json-zstd protocol",
-                        ));
-                    }
-                };
-
-                self.decode_message_binary(bin_data)
-            }
-        }
-    }
-
-    fn decode_message(&self, msg: ws::Message) -> Result<WsMessageData, WsHandleError> {
-        self.decode_message_with(msg, self.protocol)
-    }
-
-    fn error(&self, msg: String, fatal: bool) -> Result<ws::Message, WsHandleError> {
-        self.encode_message(&if fatal {
-            WsMessageData::FatalError(WsMessageError { error: msg })
-        } else {
-            WsMessageData::Error(WsMessageError { error: msg })
-        })
-    }
-
-    async fn handle_ws_message(&mut self, msg: ws::Message) -> Result<ws::Message, WsHandleError> {
-        // if unauthorized, first message must be an authentication request
-        if self.token_id.is_none() {
-            self.try_authenticate(&msg)?;
-            return self.encode_message_with(&WsMessageData::AuthAck, WsProtocol::Json);
-        }
-
-        // if this is a ping message, respond with a pong
-        if let ws::Message::Ping(msg) = msg {
-            return Ok(ws::Message::Pong(msg));
-        }
-
-        let msg = self.decode_message(msg)?;
-
-        match msg {
-            WsMessageData::Status => {
-                self.encode_message(&WsMessageData::StatusResponse(self.health_state.status()))
-            }
-
-            WsMessageData::Validate(WsMessageValidate { items }) => self.validate_weak(&items).await,
-
-            WsMessageData::ValidateStrong(WsMessageValidateStrong { items }) => {
-                self.validate_strong(&items).await
-            }
-
-            WsMessageData::ValidateCheckDataMany(WsMessageValidateCheckDataMany { items }) => {
-                self.validate_check_data(&items).await
-            }
-
-            WsMessageData::Auth(_) => self.error("Already authenticated".to_string(), false),
-            WsMessageData::AuthAck
-            | WsMessageData::StatusResponse(_)
-            | WsMessageData::ValidateResponse(_)
-            | WsMessageData::ValidateStrongResponse(_)
-            | WsMessageData::ValidateCheckDataManyResponse(_)
-            | WsMessageData::Error(_)
-            | WsMessageData::FatalError(_) => {
-                // these messages are not expected to be sent by the client
-                self.error("Unexpected message received".to_string(), false)
-            }
-        }
-    }
-
-    fn try_authenticate(&mut self, msg: &ws::Message) -> Result<(), WsHandleError> {
-        let json_data = match msg {
-            ws::Message::Text(x) => x,
-            _ => {
-                debug!("[{}] Websocket client sent a non-text auth message", self.user_ip);
-                return Err(WsHandleError::ExpectedAuth);
-            }
-        };
-
-        let val: serde_json::Value = json_data.parse().map_err(WsHandleError::Deserialization)?;
-        if val["type"].as_str().unwrap_or_default() != "Auth" {
-            return Err(WsHandleError::ExpectedAuth);
-        }
-
-        let auth_data: WsMessageAuth =
-            serde_json::from_value(val["data"].clone()).map_err(WsHandleError::Deserialization)?;
-
-        self.token_id = Some(
-            self.token_manager
-                .validate_api_token(&auth_data.token)
-                .map_err(|err| {
-                    warn!("[{}] Failed to validate API token: {err}", self.user_ip);
-                    WsHandleError::InvalidAuth
-                })?,
-        );
-
-        self.protocol = match auth_data.proto.as_str() {
-            "json" => WsProtocol::Json,
-            "json-zstd" => WsProtocol::JsonZstd,
-            "binary-v1" => WsProtocol::Binary,
-            _ => {
-                debug!(
-                    "[{}] Websocket client sent an unsupported protocol: {}",
-                    self.user_ip, auth_data.proto
-                );
-
-                return Err(WsHandleError::InvalidRequest(
-                    "Unsupported protocol, must be one of: json, json-zstd, binary-v1",
-                ));
-            }
-        };
 
         Ok(())
     }
 
-    async fn validate_weak(&self, items: &[UserAuthData]) -> Result<ws::Message, WsHandleError> {
-        if let Err(msg) = self.validate_req(items.len()).await {
-            return msg;
+    fn fatal_error(&mut self, msg: &str) -> Result<ws::Message, HandleError> {
+        self.closed = true;
+        encode_fatal_error(msg, self.protocol)
+    }
+
+    pub async fn handle_message(&mut self, msg: ClientMessage) -> Result<ServerMessage, HandleError> {
+        // if unauthorized, first message must be an authentication request
+        if self.token_id.is_none() {
+            self.try_authenticate(&msg).await?;
+            return Ok(ServerMessage::AuthAck);
+        }
+
+        Ok(match msg {
+            ClientMessage::Status => ServerMessage::StatusResponse(self.health_state.status()),
+
+            ClientMessage::Validate(m) => self.validate_weak(&m.items).await?,
+            ClientMessage::ValidateStrong(m) => self.validate_strong(&m.items).await?,
+            ClientMessage::ValidateCheckDataMany(m) => self.validate_check_data(&m.items).await?,
+
+            ClientMessage::Auth(_) => ServerMessage::Error("Already authenticated".to_owned()),
+        })
+    }
+
+    async fn try_authenticate(&mut self, msg: &ClientMessage) -> Result<(), HandleError> {
+        let ClientMessage::Auth(msg) = msg else {
+            return Err(HandleError::Unauthorized);
+        };
+
+        self.token_id = Some(self.token_manager.validate_api_token(&msg.token).map_err(|err| {
+            warn!("[{}] Failed to validate API token: {err}", self.user_ip);
+            HandleError::InvalidAuth
+        })?);
+
+        self.protocol = msg.proto;
+
+        Ok(())
+    }
+
+    async fn validate_weak(&mut self, items: &[UserAuthData]) -> Result<ServerMessage, HandleError> {
+        if let Err(e) = self.validate_req(items.len()).await {
+            return Err(HandleError::Other(e));
         }
 
         // finally, validate the tokens
-        let mut response = WsMessageValidateResponse {
+        let mut response = ValidateResponseMessage {
             items: Vec::with_capacity(items.len()),
         };
 
@@ -660,17 +474,16 @@ impl WsState {
             });
         }
 
-        let response = WsMessageData::ValidateResponse(response);
-        self.encode_message(&response)
+        Ok(ServerMessage::ValidateResponse(response))
     }
 
-    async fn validate_strong(&self, items: &[StrongUserAuthData]) -> Result<ws::Message, WsHandleError> {
-        if let Err(msg) = self.validate_req(items.len()).await {
-            return msg;
+    async fn validate_strong(&mut self, items: &[StrongUserAuthData]) -> Result<ServerMessage, HandleError> {
+        if let Err(e) = self.validate_req(items.len()).await {
+            return Err(HandleError::Other(e));
         }
 
         // finally, validate the tokens
-        let mut response = WsMessageValidateStrongResponse {
+        let mut response = ValidateStrongResponseMessage {
             items: Vec::with_capacity(items.len()),
         };
 
@@ -692,17 +505,16 @@ impl WsState {
             });
         }
 
-        let response = WsMessageData::ValidateStrongResponse(response);
-        self.encode_message(&response)
+        Ok(ServerMessage::ValidateStrongResponse(response))
     }
 
-    async fn validate_check_data(&self, items: &[UserAuthData]) -> Result<ws::Message, WsHandleError> {
-        if let Err(msg) = self.validate_req(items.len()).await {
-            return msg;
+    async fn validate_check_data(&mut self, items: &[UserAuthData]) -> Result<ServerMessage, HandleError> {
+        if let Err(e) = self.validate_req(items.len()).await {
+            return Err(HandleError::Other(e));
         }
 
         // finally, validate the tokens
-        let mut response = WsMessageValidateCheckDataManyResponse {
+        let mut response = ValidateCheckDataManyResponseMessage {
             items: Vec::with_capacity(items.len()),
         };
 
@@ -720,20 +532,18 @@ impl WsState {
             });
         }
 
-        let response = WsMessageData::ValidateCheckDataManyResponse(response);
-        self.encode_message(&response)
+        Ok(ServerMessage::ValidateCheckDataManyResponse(response))
     }
 
-    async fn validate_req(&self, items: usize) -> Result<(), Result<ws::Message, WsHandleError>> {
+    async fn validate_req(&mut self, items: usize) -> Result<(), String> {
         if items > MAX_USERS_IN_REQUEST {
             debug!(
                 "[{}] tried validating {} tokens, rejecting due to rate limit",
                 self.user_ip, items
             );
 
-            return Err(self.error(
-                format!("Too many users in request: {items}/{MAX_USERS_IN_REQUEST}"),
-                false,
+            return Err(format!(
+                "Too many users in request: {items}/{MAX_USERS_IN_REQUEST}"
             ));
         }
 
@@ -760,14 +570,13 @@ impl WsState {
         match res {
             Ok(true) => {}
             Ok(false) => {
-                return Err(self.error("Rate limit exceeded".to_string(), false));
+                return Err("Rate limit exceeded".to_string());
             }
 
             Err(TokenFetchError::DatabasePoolError) => {
-                return Err(self.error(
+                return Err(
                     "server error, please try again later (failed to get database connection)".to_string(),
-                    false,
-                ));
+                );
             }
 
             Err(e) => {
@@ -775,7 +584,7 @@ impl WsState {
                     "[{}] Failed to validate tokens (token fetch failed): {e}",
                     self.user_ip
                 );
-                return Err(self.error(format!("server error, please try again later ({e})"), false));
+                return Err(format!("server error, please try again later ({e})"));
             }
         };
 
@@ -792,50 +601,121 @@ pub fn ws_handler(
     health_state: &State<Arc<ServerHealthState>>,
     db_pool: &State<Arc<ArgonDbPool>>,
 ) -> ws::Channel<'static> {
-    use rocket::futures::{SinkExt, StreamExt};
-
     let user_ip = ip.0;
     let token_manager = token_manager.inner().clone();
     let health_state = health_state.inner().clone();
     let token_issuer = token_issuer.inner().clone();
     let db_pool = db_pool.inner().clone();
 
-    ws.channel(move |mut stream| {
+    ws.channel(move |stream| {
         Box::pin(async move {
-            let mut state = WsState::new(token_manager, health_state, token_issuer, db_pool, user_ip);
+            let mut conn = ClientConnection {
+                protocol: WsProtocol::Json,
+                token_id: None,
+                token_manager,
+                health_state,
+                token_issuer,
+                db_pool,
+                user_ip,
+                stream,
+                closed: false,
+            };
 
-            while let Some(message) = stream.next().await {
-                let res = state.handle_ws_message(message?).await;
-
-                let message = match res {
-                    Ok(x) => Ok(x),
-
-                    Err(err @ WsHandleError::Unauthorized) | Err(err @ WsHandleError::InvalidAuth) => {
-                        // fatal error
-                        state.error(err.to_string(), true)
-                    }
-
-                    Err(err) => {
-                        warn!("[{user_ip}] Error handling websocket message: {err}");
-                        state.error(err.to_string(), false)
-                    }
-                };
-
-                let message = match message {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("[{user_ip}] failed to encode websocket error message: {e}");
-                        break;
-                    }
-                };
-
-                if let Err(e) = stream.send(message).await {
-                    warn!("[{user_ip}] Failed to send websocket message, terminating: {e}");
-                    break;
-                }
+            if let Err(e) = conn.run_loop().await {
+                error!("WebSocket connection error (from {user_ip}): {:?}", e);
             }
 
             Ok(())
         })
     })
+}
+
+fn encode_message(msg: &ServerMessage, mut protocol: WsProtocol) -> Result<ws::Message, HandleError> {
+    // authack is always json
+    if matches!(msg, ServerMessage::AuthAck) {
+        protocol = WsProtocol::Json;
+    }
+
+    match protocol {
+        WsProtocol::Binary => Ok(ws::Message::Binary(encode_message_binary(msg)?)),
+
+        WsProtocol::Json => Ok(ws::Message::Text(encode_message_json(msg)?)),
+
+        WsProtocol::JsonZstd => {
+            let val = encode_message_json(msg)?;
+
+            let json_str = serde_json::to_string(&val).map_err(HandleError::Serialization)?;
+            let mut out_vec = Vec::new();
+
+            zstd::stream::copy_encode(Cursor::new(json_str), &mut out_vec, 0)
+                .map_err(HandleError::Compression)?;
+
+            Ok(ws::Message::Binary(out_vec))
+        }
+    }
+}
+
+fn encode_message_binary(msg: &ServerMessage) -> Result<Vec<u8>, HandleError> {
+    let mut bytes = BytesMut::with_capacity(128);
+    bytes.put_u8(msg.numeric_id());
+    msg.encode_binary(&mut bytes);
+
+    Ok(bytes.to_vec())
+}
+
+fn encode_message_json(msg: &ServerMessage) -> Result<String, HandleError> {
+    let json = serde_json::json!({
+        "type": msg.type_name(),
+        "data": msg.encode_json()?
+    });
+
+    Ok(json.to_string())
+}
+
+fn encode_fatal_error(s: &str, protocol: WsProtocol) -> Result<ws::Message, HandleError> {
+    encode_message(&ServerMessage::FatalError(s.to_owned()), protocol)
+}
+
+fn encode_error(s: &str, protocol: WsProtocol) -> Result<ws::Message, HandleError> {
+    encode_message(&ServerMessage::Error(s.to_owned()), protocol)
+}
+
+fn decode_message(msg: &ws::Message, protocol: WsProtocol) -> Result<ClientMessage, HandleError> {
+    match protocol {
+        WsProtocol::Json => decode_message_json(
+            msg.to_text()
+                .map_err(|_| HandleError::InvalidRequest("expected text message for json protocol"))?,
+        ),
+        WsProtocol::JsonZstd => {
+            let ws::Message::Binary(bytes) = msg else {
+                return Err(HandleError::InvalidRequest(
+                    "expected binary message for json-zstd protocol",
+                ));
+            };
+
+            let mut out_vec = Vec::new();
+            zstd::stream::copy_decode(Cursor::new(bytes), &mut out_vec).map_err(HandleError::Compression)?;
+
+            let text = String::from_utf8(out_vec)
+                .map_err(|_| HandleError::InvalidRequest("invalid utf-8 in json-zstd message"))?;
+
+            decode_message_json(&text)
+        }
+        WsProtocol::Binary => decode_message_binary(msg),
+    }
+}
+
+fn decode_message_json(msg: &str) -> Result<ClientMessage, HandleError> {
+    let value: Value = serde_json::from_str(msg)?;
+    ClientMessage::decode_json(&value)
+}
+
+fn decode_message_binary(msg: &ws::Message) -> Result<ClientMessage, HandleError> {
+    let ws::Message::Binary(bytes) = msg else {
+        return Err(HandleError::InvalidRequest(
+            "expected binary message for json-zstd protocol",
+        ));
+    };
+
+    ClientMessage::decode_binary(bytes)
 }
