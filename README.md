@@ -29,3 +29,7 @@ Bot accounts that will be used for authentication should be added like so:
 ## Config & run (node)
 
 Run the exectuable like so: `argon-node.exe <server> <password>` where `<server>` is the address and port of the node handler and password is the password. Both of those come from central's `config.json`, and the central server you are specifying must have `distributed_mode` set to `true`.
+
+## Roadmap
+
+Rewrite the whole server

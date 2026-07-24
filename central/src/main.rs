@@ -1,5 +1,5 @@
-#![feature(iterator_try_collect)]
-#![allow(non_upper_case_globals, clippy::too_many_arguments)] // tbh
+#![feature(iterator_try_collect, iter_array_chunks)]
+#![allow(non_upper_case_globals, clippy::too_many_arguments, clippy::single_match)] // tbh
 
 use argon_shared::{data_dir, get_log_level, logger::*};
 use async_watcher::{AsyncDebouncer, notify::RecursiveMode};

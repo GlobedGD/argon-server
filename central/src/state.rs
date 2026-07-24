@@ -5,9 +5,11 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use anyhow::anyhow;
 use argon_shared::{WorkerAuthMessage, logger::*};
 use nohash_hasher::IntMap;
 use parking_lot::Mutex as SyncMutex;
+use serde::Serialize;
 use tokio::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, mpsc},
     time::MissedTickBehavior,
@@ -19,7 +21,7 @@ use crate::{
     database::{ArgonDbPool, TokenLog},
     health_state::ServerHealthState,
     ip_blocker::IpBlocker,
-    node_handler::NodeHandler,
+    node_handler::{Node, NodeHandler},
     rate_limiter::RateLimiter,
     token_issuer::TokenIssuer,
 };
@@ -28,6 +30,30 @@ pub enum ChallengeValidationError {
     NoChallenge,
     WrongSolution,
     WrongAccount,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AuthChallengeMethod {
+    Message,
+    ProfileField,
+}
+
+impl AuthChallengeMethod {
+    pub fn to_str(self) -> &'static str {
+        match self {
+            AuthChallengeMethod::Message => "message",
+            AuthChallengeMethod::ProfileField => "profile_field",
+        }
+    }
+}
+
+impl Serialize for AuthChallengeMethod {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.to_str())
+    }
 }
 
 pub struct AuthChallenge {
@@ -42,6 +68,17 @@ pub struct AuthChallenge {
     pub validated_strong: bool,
     pub user_comment_id: i32,
     pub requested_mod: String,
+    pub method: AuthChallengeMethod,
+    pub node: Option<Arc<Node>>,
+}
+
+pub struct CreatedChallenge {
+    pub challenge_id: u32,
+    pub challenge_value: i32,
+    pub method: AuthChallengeMethod,
+    /// Where the solution be submitted, e.g. which bot account to send a message to or what level to leave a comment on
+    /// Not applicable everywhere
+    pub submit_id: i32,
 }
 
 fn compute_server_ident(secret_key: &str) -> String {
@@ -107,19 +144,21 @@ impl ServerStateData {
     }
 
     /// creates a new challenge, returns the challenge id and value to the user.
-    pub fn create_challenge(
+    pub async fn create_challenge(
         &self,
         account_id: i32,
         user_id: i32,
+        ip_addr: IpAddr,
         account_name: String,
         force_strong: bool,
         requested_mod: String,
-    ) -> anyhow::Result<(u32, i32)> {
+        method: AuthChallengeMethod,
+    ) -> anyhow::Result<CreatedChallenge> {
         let challenge_value = rand::random::<i32>();
         let challenge_id = rand::random::<u32>();
         let answer = Self::make_challenge_answer(challenge_value);
 
-        let challenge = AuthChallenge {
+        let mut challenge = AuthChallenge {
             account_id,
             user_id,
             username: account_name,
@@ -131,11 +170,32 @@ impl ServerStateData {
             validated_strong: false,
             user_comment_id: 0,
             requested_mod,
+            method,
+            node: None,
+        };
+
+        let submit_id = match self.pick_id_for_challenge(&mut challenge).await {
+            Some(x) => x,
+            None => {
+                warn!(
+                    "[{} @ {}] Cannot create challenge, no available nodes",
+                    account_id, ip_addr
+                );
+
+                return Err(anyhow!(
+                    "no node is currently available to process this auth request",
+                ));
+            }
         };
 
         self.active_challenges.lock().insert(challenge_id, challenge);
 
-        Ok((challenge_id, challenge_value))
+        Ok(CreatedChallenge {
+            challenge_id,
+            challenge_value,
+            method,
+            submit_id,
+        })
     }
 
     /// Returns whether the challenge has been validated, first bool is validated, second is strong validation.
@@ -164,13 +224,44 @@ impl ServerStateData {
         }
     }
 
-    pub async fn pick_id_for_message_challenge(&self) -> Option<i32> {
+    pub async fn pick_id_for_challenge(&self, challenge: &mut AuthChallenge) -> Option<i32> {
         let node_handler = self.node_handler.as_ref().unwrap();
-        node_handler.pick_challenge_account_id().await
+
+        match challenge.method {
+            AuthChallengeMethod::Message => node_handler.pick_challenge_account_id().await,
+
+            AuthChallengeMethod::ProfileField => {
+                challenge.node = Some(
+                    node_handler
+                        .begin_profile_field_auth(challenge.account_id)
+                        .await?,
+                );
+                Some(0)
+            }
+        }
     }
 
-    pub fn erase_challenge(&self, challenge_id: u32) -> Option<AuthChallenge> {
-        self.active_challenges.lock().remove(&challenge_id)
+    pub async fn erase_challenge(&self, challenge_id: u32) -> Option<AuthChallenge> {
+        let challenge = self.active_challenges.lock().remove(&challenge_id)?;
+
+        self.post_challenge_cleanup(&challenge).await;
+
+        Some(challenge)
+    }
+
+    async fn post_challenge_cleanup(&self, challenge: &AuthChallenge) {
+        let node_handler = self.node_handler.as_ref().unwrap();
+
+        match challenge.method {
+            AuthChallengeMethod::ProfileField => {
+                let node = challenge.node.as_ref().unwrap();
+                node_handler
+                    .finish_profile_field_auth(challenge.account_id, node)
+                    .await;
+            }
+
+            _ => {}
+        }
     }
 
     pub async fn validate_challenges(&self, messages: Vec<WorkerAuthMessage>) {
@@ -205,6 +296,30 @@ impl ServerStateData {
                 break;
             }
         });
+    }
+
+    pub async fn validate_profile_field_challenge(&self, account_id: i32, username: &str, answer: i32) {
+        // this is pretty inefficient as it has n*m time complexity but what can we do :p
+
+        for challenge in self.active_challenges.lock().values_mut() {
+            if challenge.account_id != account_id || challenge.challenge_answer != answer {
+                continue;
+            }
+
+            // we found a matching message
+            challenge.validated = true;
+            challenge.actual_username = username.to_owned();
+
+            // validate username for strong integrity
+            challenge.validated_strong = username.trim().eq_ignore_ascii_case(challenge.username.trim());
+
+            trace!(
+                "validated challenge for {} via profile field (strong: {})",
+                challenge.account_id, challenge.validated_strong
+            );
+
+            break;
+        }
     }
 
     pub async fn submit_token_log(&self, log: TokenLog) {

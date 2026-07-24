@@ -12,7 +12,7 @@ use crate::{
         api_error::{ApiError, ApiResult},
         routes_util::*,
     },
-    state::{ChallengeValidationError, ServerState},
+    state::{AuthChallengeMethod, ChallengeValidationError, ServerState},
     token_issuer::TokenIssuer,
 };
 
@@ -61,19 +61,26 @@ pub struct ChallengeStartData {
     pub force_strong: bool,
     #[serde(rename = "reqMod", default = "default_empty_string")]
     pub req_mod: String,
-    #[allow(unused)]
     #[serde(default = "default_preferred_auth_method")]
     pub preferred: String,
 }
 
 #[derive(Serialize)]
 pub struct ChallengeStartResponse {
-    pub method: &'static str,
+    pub method: AuthChallengeMethod,
     pub id: i32,
     #[serde(rename = "challengeId")]
     pub challenge_id: u32,
     pub challenge: i32,
     pub ident: String,
+}
+
+fn pick_challenge_method(preferred: &str) -> AuthChallengeMethod {
+    match preferred {
+        "message" => AuthChallengeMethod::Message,
+        "profile_field" => AuthChallengeMethod::ProfileField,
+        _ => AuthChallengeMethod::Message,
+    }
 }
 
 #[post("/challenge/start", data = "<data>")]
@@ -101,43 +108,34 @@ pub async fn challenge_start(
     let state = state_.state_read().await;
 
     // Currently, only message auth is supported
-    let auth_method = "message";
+    let method = pick_challenge_method(&data.preferred);
 
-    let (challenge_id, challenge) = match state.create_challenge(
-        data.account_id,
-        data.user_id,
-        data.username.clone(),
-        data.force_strong,
-        data.req_mod.clone(),
-    ) {
+    let challenge = match state
+        .create_challenge(
+            data.account_id,
+            data.user_id,
+            user_ip,
+            data.username.clone(),
+            data.force_strong,
+            data.req_mod.clone(),
+            method,
+        )
+        .await
+    {
         Ok(c) => c,
-        Err(err) => return Err(ApiError::bad_request(err.to_string())),
-    };
-
-    let id = match state.pick_id_for_message_challenge().await {
-        Some(x) => x,
-        None => {
-            warn!(
-                "[{} @ {}] Cannot create challenge, no available nodes",
-                data.account_id, user_ip
-            );
-
-            return Err(ApiError::internal_server_error(
-                "no node is currently available to process this auth request",
-            ));
-        }
+        Err(err) => return Err(ApiError::internal_server_error(err.to_string())),
     };
 
     debug!(
-        "[{} @ {}] Created challenge (method: {}, cid: {}, mod: {})",
-        data.account_id, user_ip, auth_method, challenge_id, data.req_mod
+        "[{} @ {}] Created challenge (method: {:?}, cid: {}, mod: {})",
+        data.account_id, user_ip, method, challenge.challenge_id, data.req_mod
     );
 
     Ok(GenericResponse::make(ChallengeStartResponse {
-        challenge,
-        challenge_id,
-        method: auth_method,
-        id,
+        challenge: challenge.challenge_value,
+        challenge_id: challenge.challenge_id,
+        method: challenge.method,
+        id: challenge.submit_id,
         ident: state.ident().to_owned(),
     }))
 }
@@ -253,7 +251,7 @@ pub async fn challenge_verify(
     };
 
     // the challenge was verified! delete it and generate the authtoken
-    let challenge = state.erase_challenge(data.challenge_id);
+    let challenge = state.erase_challenge(data.challenge_id).await;
     assert!(challenge.is_some(), "challenge should exist after being verified");
 
     rate_limiter.record_challenge_success(user_ip, data.account_id);

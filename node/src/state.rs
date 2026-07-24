@@ -1,7 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow, bail};
-use argon_shared::{MessageCode, NodeConnection, WorkerConfiguration, logger::*};
+use argon_shared::{MessageCode, NodeConnection, VerifyProfileFieldData, WorkerConfiguration, logger::*};
 use tokio::{net::TcpStream, sync::Mutex as AsyncMutex};
 
 use crate::worker::Worker;
@@ -74,9 +74,40 @@ impl NodeState {
         self.worker.lock().await.is_some()
     }
 
-    pub async fn run_loop(&self) -> Result<()> {
+    pub async fn run_loop(self: Arc<Self>) {
         let worker = self.worker.lock().await.clone().unwrap();
-        worker.run_loop().await
+
+        if let Err(err) = worker.run_loop().await {
+            error!("Worker loop terminated due to error: {err}");
+
+            match tokio::time::timeout(Duration::from_secs(5), self.close_connection()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => error!("Error during closing the connection: {err}"),
+                Err(_) => warn!("Timed out during closing the connection"),
+            }
+
+            Logger::instance("argon_node", true).flush();
+
+            std::process::exit(1);
+        }
+    }
+
+    pub async fn run_profile_fetch_loop(self: Arc<Self>) {
+        let worker = self.worker.lock().await.clone().unwrap();
+
+        if let Err(err) = worker.run_profile_fetch_loop().await {
+            error!("Profile loop terminated due to error: {err}");
+
+            match tokio::time::timeout(Duration::from_secs(5), self.close_connection()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => error!("Error during closing the connection: {err}"),
+                Err(_) => warn!("Timed out during closing the connection"),
+            }
+
+            Logger::instance("argon_node", true).flush();
+
+            std::process::exit(1);
+        }
     }
 
     pub async fn run_message_handler(&self) -> Result<()> {
@@ -113,13 +144,29 @@ impl NodeState {
                     // update the config if it has changed
                     if *worker_config != config {
                         *worker_config = config;
-                        worker.gd_client.lock().await.update_config(
+                        worker.gd_client.update_config(
                             worker_config.account_id,
                             worker_config.account_gjp.clone(),
                             worker_config.base_url.clone(),
                         );
 
                         worker.on_config_changed();
+                    }
+                }
+
+                MessageCode::AskVerifyProfileField => {
+                    let data = match serde_json::from_value::<VerifyProfileFieldData>(message.data) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            warn!("failed to parse VerifyProfileFieldData sent by the server: {e}");
+                            continue;
+                        }
+                    };
+
+                    if data.watch {
+                        worker.start_watching_profile(data.account_id);
+                    } else {
+                        worker.stop_watching_profile(data.account_id);
                     }
                 }
 

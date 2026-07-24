@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 
 use argon_shared::logger::*;
 use base64::{
@@ -8,6 +8,7 @@ use base64::{
 };
 use parking_lot::Mutex;
 use reqwest::Response;
+use thiserror::Error;
 
 #[allow(non_upper_case_globals)]
 pub const b64e: GeneralPurpose = GeneralPurpose::new(
@@ -24,6 +25,13 @@ pub struct GDMessage {
     pub author_id: i32,
     pub author_user_id: i32,
     pub age: Duration,
+}
+
+#[derive(Clone, Default)]
+pub struct GDUser {
+    pub id: i32,
+    pub username: String,
+    pub custom: String,
 }
 
 struct ClientConfig {
@@ -51,36 +59,24 @@ pub struct GDClient {
     client: reqwest::Client,
 }
 
+#[derive(Error, Debug)]
 pub enum GDClientError {
-    RequestFailed(reqwest::Error),
-    InvalidServerResponse(&'static str),
-    GenericAPIError,      // -1 by boomlings
+    #[error("request failed: {0}")]
+    RequestFailed(#[from] reqwest::Error),
+    #[error("invalid server response: {0}")]
+    InvalidServerResponse(#[from] ResponseParseError),
+    #[error("generic API error (likely invalid credentials?)")]
+    GenericAPIError, // -1 by boomlings
+    #[error("API error: code {0}")]
     UnknownAPIError(i32), // other boomlings error than -1
-    BlockedIP,            // CF error 1006, IP is blocked
-    BlockedProvider,      // CF error 1005, the entire provider is blocked
-    BlockedGeneric(i32),  // other CF error
+    #[error("error code 1006 returned, this IP address has been blocked")]
+    BlockedIP, // CF error 1006, IP is blocked
+    #[error("error code 1005 returned, your internet provider (or VPS host) has been blocked")]
+    BlockedProvider, // CF error 1005, the entire provider is blocked
+    #[error("error code {0} returned by Cloudflare")]
+    BlockedGeneric(i32), // other CF error
+    #[error("account improperly configured, account ID was not a positive number")]
     NoAccountConfigured,
-}
-
-impl Display for GDClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RequestFailed(err) => write!(f, "request failed: {err}"),
-            Self::InvalidServerResponse(msg) => write!(f, "invalid server response: {msg}"),
-            Self::GenericAPIError => write!(f, "generic API error (likely invalid credentials?)"),
-            Self::UnknownAPIError(code) => write!(f, "API error: code {code}"),
-            Self::BlockedIP => write!(f, "error code 1006 returned, this IP address has been blocked"),
-            Self::BlockedProvider => write!(
-                f,
-                "error code 1005 returned, your internet provider (or VPS host) has been blocked"
-            ),
-            Self::BlockedGeneric(code) => write!(f, "error code {code} returned by Cloudflare"),
-            Self::NoAccountConfigured => write!(
-                f,
-                "account improperly configured, account ID was not a positive number"
-            ),
-        }
-    }
 }
 
 impl GDClient {
@@ -130,12 +126,7 @@ impl GDClient {
                 ])
         };
 
-        let result = req.send().await;
-
-        let response = match result {
-            Ok(x) => x,
-            Err(err) => return Err(GDClientError::RequestFailed(err)),
-        };
+        let response = req.send().await?.error_for_status()?;
 
         let text = match Self::_handle_response(response).await {
             Ok(x) => x,
@@ -191,27 +182,32 @@ impl GDClient {
                 ])
         };
 
-        let result = req.send().await;
-
-        let response = match result {
-            Ok(x) => x,
-            Err(err) => return Err(GDClientError::RequestFailed(err)),
-        };
-
+        let response = req.send().await?.error_for_status()?;
         Self::_handle_response(response).await?;
 
         Ok(())
     }
 
-    async fn _handle_response(resp: Response) -> Result<String, GDClientError> {
-        let text = match resp.text().await {
-            Ok(x) => x,
-            Err(_e) => {
-                return Err(GDClientError::InvalidServerResponse(
-                    "utf-8 decoding failed or response.text() failed for another reason",
-                ));
-            }
+    pub async fn fetch_user_profile(&self, account_id: i32) -> Result<GDUser, GDClientError> {
+        let req = {
+            let config = self.config.lock();
+
+            self.client
+                .post(format!("{}/getGJUserInfo20.php", config.base_url))
+                .form(&[
+                    ("targetAccountID", account_id.to_string().as_str()),
+                    ("secret", "Wmfd2893gb7"),
+                ])
         };
+
+        let response = req.send().await?.error_for_status()?;
+        let resp = Self::_handle_response(response).await?;
+
+        Ok(resp.parse::<GDUser>()?)
+    }
+
+    async fn _handle_response(resp: Response) -> Result<String, GDClientError> {
+        let text = resp.text().await?;
 
         if text.starts_with("error code: ") {
             let code = text
@@ -238,27 +234,21 @@ impl GDClient {
     }
 }
 
-pub enum MessageParseError {
+#[derive(Error, Debug)]
+pub enum ResponseParseError {
+    #[error("failed to parse message/account/user ID")]
     InvalidId,
+    #[error("failed to find important fields in the message string")]
     IncompleteMessage,
+    #[error("failed to decode the message title")]
     InvalidTitle,
+    #[error("failed to parse age string: {0}")]
     InvalidAge(AgeParseError),
 }
 
-impl Display for MessageParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidId => f.write_str("failed to parse message/account/user ID"),
-            Self::IncompleteMessage => f.write_str("failed to find important fields in the message string"),
-            Self::InvalidTitle => f.write_str("failed to decode the message title"),
-            Self::InvalidAge(e) => write!(f, "failed to parse age string: {e}"),
-        }
-    }
-}
-
 impl FromStr for GDMessage {
-    type Err = MessageParseError;
-    fn from_str(s: &str) -> Result<Self, MessageParseError> {
+    type Err = ResponseParseError;
+    fn from_str(s: &str) -> Result<Self, ResponseParseError> {
         let mut id = -1;
         let mut title = String::new();
         let mut author_name = String::new();
@@ -276,23 +266,23 @@ impl FromStr for GDMessage {
             } else {
                 match cur_key {
                     "1" => {
-                        id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
+                        id = part.parse::<i32>().map_err(|_| ResponseParseError::InvalidId)?;
                     }
 
                     "2" => {
-                        author_id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
+                        author_id = part.parse::<i32>().map_err(|_| ResponseParseError::InvalidId)?;
                     }
 
                     "3" => {
-                        author_user_id = part.parse::<i32>().map_err(|_| MessageParseError::InvalidId)?;
+                        author_user_id = part.parse::<i32>().map_err(|_| ResponseParseError::InvalidId)?;
                     }
 
                     "4" => {
                         title = b64e
                             .decode(part)
-                            .map_err(|_| MessageParseError::InvalidTitle)
+                            .map_err(|_| ResponseParseError::InvalidTitle)
                             .and_then(|v| {
-                                String::from_utf8(v).map_err(|_| MessageParseError::InvalidTitle)
+                                String::from_utf8(v).map_err(|_| ResponseParseError::InvalidTitle)
                             })?;
                     }
 
@@ -301,7 +291,7 @@ impl FromStr for GDMessage {
                     }
 
                     "7" => {
-                        age = Some(rob_age_to_duration(part).map_err(MessageParseError::InvalidAge)?);
+                        age = Some(rob_age_to_duration(part).map_err(ResponseParseError::InvalidAge)?);
                     }
 
                     _ => {}
@@ -326,26 +316,38 @@ impl FromStr for GDMessage {
                 age,
             })
         } else {
-            Err(MessageParseError::IncompleteMessage)
+            Err(ResponseParseError::IncompleteMessage)
         }
+    }
+}
+
+impl FromStr for GDUser {
+    type Err = ResponseParseError;
+    fn from_str(s: &str) -> Result<Self, ResponseParseError> {
+        let mut this = Self::default();
+
+        for [k, v] in s.split(":").array_chunks::<2>() {
+            match k {
+                "16" => this.id = v.parse::<i32>().map_err(|_| ResponseParseError::InvalidId)?,
+                "1" => this.username = v.to_owned(),
+                "61" => this.custom = v.to_owned(),
+                _ => {}
+            }
+        }
+
+        Ok(this)
     }
 }
 
 #[allow(clippy::enum_variant_names)]
+#[derive(Error, Debug)]
 pub enum AgeParseError {
+    #[error("invalid format")]
     InvalidFormat,
+    #[error("invalid number")]
     InvalidNumber,
+    #[error("invalid time unit")]
     InvalidUnit,
-}
-
-impl Display for AgeParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::InvalidFormat => f.write_str("invalid format"),
-            Self::InvalidNumber => f.write_str("invalid number"),
-            Self::InvalidUnit => f.write_str("invalid time unit"),
-        }
-    }
 }
 
 /// Converts a string in format like "3 seconds ago", "1 hour ago" to a duration
