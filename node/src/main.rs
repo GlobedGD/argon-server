@@ -1,4 +1,4 @@
-#![feature(duration_constructors)]
+#![feature(duration_constructors, iter_array_chunks)]
 
 mod gd_client;
 mod state;
@@ -91,22 +91,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Successfully connected to the central server, starting the worker loop");
 
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        if let Err(err) = state_clone.run_loop().await {
-            error!("Worker loop terminated due to error: {err}");
-
-            match tokio::time::timeout(Duration::from_secs(5), state_clone.close_connection()).await {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => error!("Error during closing the connection: {err}"),
-                Err(_) => warn!("Timed out during closing the connection"),
-            }
-
-            Logger::instance("argon_node", true).flush();
-
-            std::process::exit(1);
-        }
-    });
+    tokio::spawn(state.clone().run_loop());
+    tokio::spawn(state.clone().run_profile_fetch_loop());
 
     // Run the message handler
 

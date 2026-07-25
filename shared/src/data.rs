@@ -12,16 +12,18 @@ pub enum MessageCode {
     CloseAck = 4,
 
     // Messages sent by the node
-    NodeHandshake = 1000,      // data: NodeHandshakeData
-    NodeStartup = 1001,        // data: password (string)
-    NodeReportError = 1020,    // data: error message (string)
-    NodeReportMessages = 1021, // data: Vec<WorkerAuthMessage>
+    NodeHandshake = 1000,          // data: NodeHandshakeData
+    NodeStartup = 1001,            // data: password (string)
+    NodeReportError = 1020,        // data: error message (string)
+    NodeReportMessages = 1021,     // data: Vec<WorkerAuthMessage>
+    NodeProfileFieldAnswer = 1022, // data: WorkerProfileFieldAnswer
 
     // Messages sent by the central server
-    HandshakeResponse = 2000, // data: ServerHandshakeResponse
-    StartupConfig = 2001,     // data: WorkerConfiguration
-    StartupAbort = 2002,      // data: error message (string)
-    RefreshConfig = 2010,     // data: WorkerConfiguration
+    HandshakeResponse = 2000,     // data: ServerHandshakeResponse
+    StartupConfig = 2001,         // data: WorkerConfiguration
+    StartupAbort = 2002,          // data: error message (string)
+    RefreshConfig = 2010,         // data: WorkerConfiguration
+    AskVerifyProfileField = 2020, // data: VerifyProfileFieldData
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,6 +58,24 @@ pub struct WorkerAuthMessage {
     pub account_id: i32,
     #[serde(rename = "u")]
     pub user_id: i32,
+    #[serde(rename = "n")]
+    pub username: String,
+    #[serde(rename = "c")]
+    pub challenge_answer: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyProfileFieldData {
+    #[serde(rename = "a")]
+    pub account_id: i32,
+    #[serde(rename = "e")]
+    pub watch: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkerProfileFieldAnswer {
+    #[serde(rename = "a")]
+    pub account_id: i32,
     #[serde(rename = "n")]
     pub username: String,
     #[serde(rename = "c")]

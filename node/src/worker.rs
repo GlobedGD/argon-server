@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use nohash_hasher::{IntMap, IntSet};
 use std::{
+    collections::HashMap,
     error::Error,
     fmt::Display,
     sync::atomic::{AtomicU32, Ordering},
@@ -17,7 +18,7 @@ use tokio::{
 use crate::gd_client::{GDClient, GDMessage};
 use argon_shared::{
     MessageCode, NodeConnection, ReceiveError, SendError, WorkerAuthMessage, WorkerConfiguration,
-    WorkerError, format_duration, logger::*,
+    WorkerError, WorkerProfileFieldAnswer, format_duration, logger::*,
 };
 use parking_lot::Mutex;
 use serde_json::json;
@@ -33,13 +34,20 @@ type ChallengeChannel = (
     AsyncMutex<Receiver<Vec<WorkerAuthMessage>>>,
 );
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct WatchedProfile {
+    account_id: i32,
+    expire_at: Instant,
+}
+
 pub struct Worker {
-    pub gd_client: AsyncMutex<GDClient>,
+    pub gd_client: GDClient,
     pub central: Option<NodeConnection>,
     pub config: AsyncMutex<WorkerConfiguration>,
     failcount: AtomicU32,
     history: Mutex<IntMap<i32, ToDeleteMessage>>,
     to_delete: Mutex<IntSet<i32>>,
+    watched: Mutex<HashMap<i32, WatchedProfile>>,
 
     // these are for standalone
     auth_challenge_channel: Option<ChallengeChannel>,
@@ -103,13 +111,14 @@ impl Worker {
         };
 
         Self {
-            gd_client: AsyncMutex::new(gd_client),
+            gd_client,
             central,
             config: AsyncMutex::new(config),
             failcount: AtomicU32::new(0),
             history: Mutex::new(IntMap::default()),
             to_delete: Mutex::new(IntSet::default()),
             auth_challenge_channel,
+            watched: Mutex::new(HashMap::default()),
         }
     }
 
@@ -144,8 +153,7 @@ impl Worker {
         loop {
             interval.tick().await;
 
-            let gd_client = self.gd_client.lock().await;
-            if !gd_client.has_account() {
+            if !self.gd_client.has_account() {
                 // just keep pinging to keep the connection alive
                 trace!("no account configured, just pinging the central server");
 
@@ -158,7 +166,7 @@ impl Worker {
 
             let pre_fetch = Instant::now();
 
-            match self.fetch_messages(&gd_client, self.central.as_ref()).await {
+            match self.fetch_messages(&self.gd_client, self.central.as_ref()).await {
                 Ok(messages) => {
                     debug!(
                         "received {} auth messages (took {}), processing them",
@@ -183,7 +191,7 @@ impl Worker {
 
             if to_delete >= AMOUNT_TO_DELETE {
                 // delete the messages
-                if let Err(err) = self.delete_messages(&gd_client).await {
+                if let Err(err) = self.delete_messages(&self.gd_client).await {
                     warn!("{err}");
                 }
             }
@@ -197,6 +205,39 @@ impl Worker {
                 interval = tokio::time::interval(Duration::from_millis(interval_ms as u64));
                 interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
                 interval.tick().await;
+            }
+        }
+    }
+
+    pub async fn run_profile_fetch_loop(&self) -> Result<()> {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+
+            let profiles = self.get_watched_profiles();
+            if profiles.is_empty() {
+                continue;
+            }
+
+            info!("Checking profiles for custom field: {profiles:?}");
+
+            for id in profiles {
+                match self.gd_client.fetch_user_profile(id).await {
+                    Ok(user) => {
+                        if let Some(answer) = extract_challenge_from_custom(&user.custom) {
+                            self.report_profile_challenge_answer(id, user.username, answer)
+                                .await?;
+                        }
+                    }
+
+                    Err(e) => {
+                        warn!("Failed to fetch profile for account {id}: {e}");
+                        self.stop_watching_profile(id);
+                    }
+                }
             }
         }
     }
@@ -335,6 +376,28 @@ impl Worker {
         Ok(())
     }
 
+    async fn report_profile_challenge_answer(
+        &self,
+        account_id: i32,
+        username: String,
+        answer: i32,
+    ) -> Result<()> {
+        if let Some(conn) = self.central.as_ref() {
+            // report the challenge answer to the central server
+            conn.send_message(
+                MessageCode::NodeProfileFieldAnswer,
+                &WorkerProfileFieldAnswer {
+                    account_id,
+                    username,
+                    challenge_answer: answer,
+                },
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
     async fn report_error(&self, conn: &NodeConnection, err: String) -> Result<()> {
         conn.send_message(
             MessageCode::NodeReportError,
@@ -374,4 +437,34 @@ impl Worker {
         self.history.lock().clear();
         self.to_delete.lock().clear();
     }
+
+    pub fn start_watching_profile(&self, account_id: i32) {
+        self.watched.lock().insert(
+            account_id,
+            WatchedProfile {
+                account_id,
+                expire_at: Instant::now() + Duration::from_mins(1),
+            },
+        );
+    }
+
+    pub fn stop_watching_profile(&self, account_id: i32) {
+        self.watched.lock().remove(&account_id);
+    }
+
+    pub fn get_watched_profiles(&self) -> Vec<i32> {
+        let mut watched = self.watched.lock();
+        let now = Instant::now();
+
+        watched.retain(|_, v| v.expire_at > now);
+        watched.keys().copied().collect()
+    }
+}
+
+fn extract_challenge_from_custom(custom: &str) -> Option<i32> {
+    if !custom.starts_with("aRg") {
+        return None;
+    }
+
+    custom[3..].parse().ok()
 }

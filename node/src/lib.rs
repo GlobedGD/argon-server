@@ -1,4 +1,4 @@
-#![feature(duration_constructors)]
+#![feature(duration_constructors, iter_array_chunks)]
 
 mod gd_client;
 mod worker;

@@ -9,8 +9,8 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use argon_shared::{
-    MessageCode, NodeConnection, ReceivedMessage, WorkerAuthMessage, WorkerConfiguration, WorkerError,
-    logger::*,
+    MessageCode, NodeConnection, ReceivedMessage, VerifyProfileFieldData, WorkerAuthMessage,
+    WorkerConfiguration, WorkerError, WorkerProfileFieldAnswer, logger::*,
 };
 use parking_lot::Mutex as SyncMutex;
 use tokio::{
@@ -166,21 +166,27 @@ impl NodeHandler {
         }
     }
 
+    async fn pick_node(&self, require_account: bool) -> Option<Arc<Node>> {
+        let nodes = self.nodes.lock().await;
+
+        // TODO: smarter load balancing logic
+        for node in &*nodes {
+            let id = node.used_account_id.load(Ordering::SeqCst);
+
+            if node.is_active() && (!require_account || id > 0) {
+                return Some(node.clone());
+            }
+        }
+
+        None
+    }
+
     pub async fn pick_challenge_account_id(&self) -> Option<i32> {
         match self.listener.as_ref() {
-            Some(_) => {
-                let nodes = self.nodes.lock().await;
-
-                // TODO: smarter load balancing logic
-                for node in &*nodes {
-                    let id = node.used_account_id.load(Ordering::SeqCst);
-                    if node.is_active() && id != -1 {
-                        return Some(id);
-                    }
-                }
-
-                None
-            }
+            Some(_) => self
+                .pick_node(true)
+                .await
+                .map(|node| node.used_account_id.load(Ordering::Relaxed)),
 
             None => {
                 if !self.ofm_active.load(Ordering::SeqCst) {
@@ -190,6 +196,39 @@ impl NodeHandler {
                 }
             }
         }
+    }
+
+    pub async fn begin_profile_field_auth(&self, account_id: i32) -> Option<Arc<Node>> {
+        let node = self.pick_node(false).await?;
+
+        node.conn
+            .send_message(
+                MessageCode::AskVerifyProfileField,
+                &VerifyProfileFieldData {
+                    account_id,
+                    watch: true,
+                },
+            )
+            .await
+            .inspect_err(|e| warn!("failed to send AskVerifyProfileField: {e}"))
+            .ok()?;
+
+        // no account required for this method
+        Some(node)
+    }
+
+    pub async fn finish_profile_field_auth(&self, account_id: i32, node: &Node) {
+        let _ = node
+            .conn
+            .send_message(
+                MessageCode::AskVerifyProfileField,
+                &VerifyProfileFieldData {
+                    account_id,
+                    watch: false,
+                },
+            )
+            .await
+            .inspect_err(|e| warn!("failed to send AskVerifyProfileField: {e}"));
     }
 
     async fn make_worker_config(&self, acc: &GDAccountCreds) -> WorkerConfiguration {
@@ -584,6 +623,20 @@ impl NodeHandler {
                 node.set_fail_count(data.fail_count);
             }
 
+            MessageCode::NodeProfileFieldAnswer => {
+                let data = match serde_json::from_value::<WorkerProfileFieldAnswer>(message.data) {
+                    Ok(x) => x,
+                    Err(err) => return Err(anyhow!("failed to parse WorkerProfileFieldAnswer: {err}")),
+                };
+
+                debug!(
+                    "[{}] received profile field answer from node, id: {}, answer: {}",
+                    node.addr, data.account_id, data.challenge_answer
+                );
+
+                self.handle_profile_field_answer(data).await;
+            }
+
             _ => {
                 warn!("[{}] invalid message code received, not handling", node.addr);
             }
@@ -656,6 +709,14 @@ impl NodeHandler {
             .state_read()
             .await
             .validate_challenges(messages)
+            .await;
+    }
+
+    async fn handle_profile_field_answer(&self, answer: WorkerProfileFieldAnswer) {
+        self.server_state
+            .state_read()
+            .await
+            .validate_profile_field_challenge(answer.account_id, &answer.username, answer.challenge_answer)
             .await;
     }
 }
