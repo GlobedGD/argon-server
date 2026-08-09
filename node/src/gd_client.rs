@@ -194,6 +194,7 @@ impl GDClient {
 
             self.client
                 .post(format!("{}/getGJUserInfo20.php", config.base_url))
+                .header("X-No-Cache", "1") // header for gdproxy, ignored by official boomlings
                 .form(&[
                     ("targetAccountID", account_id.to_string().as_str()),
                     ("secret", "Wmfd2893gb7"),
