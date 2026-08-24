@@ -2,7 +2,6 @@
 #![allow(non_upper_case_globals, clippy::too_many_arguments, clippy::single_match)] // tbh
 
 use argon_shared::{data_dir, get_log_level, logger::*};
-use async_watcher::{AsyncDebouncer, notify::RecursiveMode};
 use config::ServerConfig;
 use database::ArgonDbPool;
 use node_handler::NodeHandler;
@@ -13,7 +12,6 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -178,39 +176,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let node_handler = Arc::new(node_handler);
     state.state_write().await.node_handler = Some(node_handler);
-
-    // config file watcher
-
-    let (mut debouncer, mut file_events) =
-        AsyncDebouncer::new_with_channel(Duration::from_secs(1), Some(Duration::from_secs(1))).await?;
-
-    debouncer
-        .watcher()
-        .watch(&config_path, RecursiveMode::NonRecursive)?;
-
-    let watcher_state = state.clone();
-    tokio::spawn(async move {
-        while let Some(_event) = file_events.recv().await {
-            let mut state = watcher_state.state_write().await;
-            let cpath = state.config_path.clone();
-            match state.config.reload_in_place(&cpath) {
-                Ok(()) => {
-                    info!("Successfully reloaded the configuration");
-                    state.notify_config_change().await;
-
-                    // notify node handler about config change in another task
-                    let nh = state.node_handler.clone().unwrap();
-                    tokio::spawn(async move {
-                        nh.notify_config_change().await;
-                    });
-                }
-
-                Err(err) => {
-                    warn!("Failed to reload configuration: {err}");
-                }
-            }
-        }
-    });
 
     // start the node handler
 
