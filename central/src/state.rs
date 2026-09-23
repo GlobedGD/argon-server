@@ -92,7 +92,7 @@ fn compute_server_ident(secret_key: &str) -> String {
 
 pub struct ServerStateData {
     pub config_path: PathBuf,
-    pub config: ServerConfig,
+    pub config: Arc<ServerConfig>,
     pub token_issuer: Arc<TokenIssuer>,
     pub ip_blocker: Arc<IpBlocker>,
     pub rate_limiter: Arc<SyncMutex<RateLimiter>>,
@@ -125,7 +125,7 @@ impl ServerStateData {
 
         Self {
             rate_limiter,
-            config,
+            config: Arc::new(config),
             config_path,
             database,
             token_log_tx,

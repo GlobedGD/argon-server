@@ -19,10 +19,15 @@ use tokio::{
     time::MissedTickBehavior,
 };
 
-use crate::{config::GDAccountCreds, health_state::ServerHealthState, state::ServerState};
+use crate::{
+    config::{GDAccountCreds, ServerConfig},
+    health_state::ServerHealthState,
+    state::ServerState,
+};
 
 pub struct NodeHandler {
     server_state: ServerState,
+    config: Arc<ServerConfig>,
     health_state: Arc<ServerHealthState>,
     // fields for the distributed mode
     listener: Option<TcpListener>,
@@ -140,10 +145,14 @@ impl NodeHandler {
             None
         };
 
-        let health_state = state.state_read().await.health_state.clone();
+        let (health_state, config) = {
+            let state = state.state_read().await;
+            (state.health_state.clone(), state.config.clone())
+        };
 
         Ok(Self {
             server_state: state,
+            config,
             health_state,
             listener,
             nodes: Mutex::new(Vec::new()),
@@ -232,22 +241,17 @@ impl NodeHandler {
     }
 
     async fn make_worker_config(&self, acc: &GDAccountCreds) -> WorkerConfiguration {
-        let state = self.server_state.state_read().await;
-
         WorkerConfiguration {
             account_id: acc.id,
             account_gjp: acc.gjp.clone(),
-            base_url: state.config.base_url.clone(),
-            msg_check_interval: state.config.msg_check_interval,
+            base_url: self.config.base_url.clone(),
+            msg_check_interval: self.config.msg_check_interval,
         }
     }
 
     async fn pick_account_for_bot(&self, nodes: &[Arc<Node>]) -> Option<GDAccountCreds> {
-        let state = self.server_state.state_read().await;
-
         // find an account that is not used by any active nodes
-
-        for account in &state.config.accounts {
+        for account in &self.config.accounts {
             if !nodes
                 .iter()
                 .any(|node| node.used_account_id.load(Ordering::SeqCst) == account.id)
@@ -295,7 +299,6 @@ impl NodeHandler {
             interval.tick().await;
 
             let mut nodes = self.nodes.lock().await;
-            let state = self.server_state.state_read().await;
 
             // remove all nodes that have terminated from the list
             nodes.retain(|node| {
@@ -376,7 +379,7 @@ impl NodeHandler {
                                 account_id: -1,
                                 account_gjp: String::new(),
                                 base_url: String::new(),
-                                msg_check_interval: state.config.msg_check_interval,
+                                msg_check_interval: self.config.msg_check_interval,
                             },
                         )
                         .await
@@ -395,15 +398,11 @@ impl NodeHandler {
                 }
             }
 
-            drop(state);
-
             // loop again, assign gd accounts to nodes that don't have them
             for node in &*nodes {
                 if node.wants_account()
                     && let Some(account) = self.pick_account_for_bot(&nodes).await
                 {
-                    let state = self.server_state.state_read().await;
-
                     info!("assigning account {} to node {}", account.id, node.addr);
 
                     node.used_account_id.store(account.id, Ordering::SeqCst);
@@ -415,8 +414,8 @@ impl NodeHandler {
                             &WorkerConfiguration {
                                 account_id: account.id,
                                 account_gjp: account.gjp,
-                                base_url: state.config.base_url.clone(),
-                                msg_check_interval: state.config.msg_check_interval,
+                                base_url: self.config.base_url.clone(),
+                                msg_check_interval: self.config.msg_check_interval,
                             },
                         )
                         .await
@@ -487,7 +486,7 @@ impl NodeHandler {
 
         let password = msg.data.as_str().unwrap_or_default();
 
-        if !constant_time_compare(&self.server_state.state_read().await.config.password, password) {
+        if !constant_time_compare(&self.config.password, password) {
             // send abort message
             conn.send_message(MessageCode::StartupAbort, &"auth failure".to_owned())
                 .await?;

@@ -326,6 +326,8 @@ impl NodeConnection {
             None => data,
         };
 
+        drop(crypto_box);
+
         let mut buffer = self.buffer.lock().await;
 
         // grow buffer if needed
@@ -390,12 +392,7 @@ impl NodeConnection {
             return Err(ReceiveError::InvalidStructure);
         }
 
-        let mut buffer = self.buffer.lock().await;
-
-        if buffer.len() < length {
-            buffer.resize(length, 0);
-        }
-
+        let mut buffer = vec![0u8; length];
         stream.read_exact(&mut buffer[..length]).await?;
 
         let crypto_box = self.crypto_box.lock().await;

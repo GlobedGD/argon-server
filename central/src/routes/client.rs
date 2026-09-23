@@ -174,23 +174,18 @@ pub struct ChallengeVerifyResponse {
     poll_after: Option<u32>,
 }
 
-#[allow(clippy::await_holding_lock)] // it's literally wrong
 #[post("/challenge/verify", data = "<data>")]
 pub async fn challenge_verify(
     rate_limiter: &State<Arc<SyncMutex<RateLimiter>>>,
     issuer: &State<Arc<TokenIssuer>>,
-    state: &State<ServerState>,
+    state_shared: &State<ServerState>,
     data: Json<ChallengeVerifyData>,
     ip: CloudflareIPGuard,
     user_agent: UserAgentGuard<'_>,
 ) -> ClientApiResult<ChallengeVerifyResponse> {
     let user_ip = ip.0;
 
-    let state = state.state_read().await;
-
-    let mut rate_limiter = rate_limiter.lock();
-
-    if !rate_limiter.can_verify_poll(user_ip, data.account_id) {
+    if !rate_limiter.lock().can_verify_poll(user_ip, data.account_id) {
         warn!(
             "[{} @ {user_ip}] disallowing challenge verify, rate limit exceeded",
             data.account_id
@@ -198,11 +193,16 @@ pub async fn challenge_verify(
         return Err(ApiError::too_many_requests("rate limit exceeded"));
     }
 
-    let strong = match state.is_challenge_validated(
+    let state = state_shared.state_read().await;
+    let config = state.config.clone();
+    let result = state.is_challenge_validated(
         data.challenge_id,
         data.account_id,
         data.solution.parse::<i32>().unwrap_or_default(),
-    ) {
+    );
+    drop(state);
+
+    let strong = match result {
         Ok((true, strong)) => strong,
 
         Ok((false, _)) => {
@@ -211,12 +211,14 @@ pub async fn challenge_verify(
                 verified: false,
                 authtoken: None,
                 comment_id: None,
-                poll_after: Some(state.config.msg_check_interval / 2),
+                poll_after: Some(config.msg_check_interval / 2),
             }));
         }
 
         Err(ChallengeValidationError::NoChallenge) => {
-            rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter
+                .lock()
+                .record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify inexisting challenge",
                 data.account_id
@@ -228,7 +230,9 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::WrongAccount) => {
-            rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter
+                .lock()
+                .record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify challenge for the wrong account",
                 data.account_id
@@ -240,7 +244,9 @@ pub async fn challenge_verify(
         }
 
         Err(ChallengeValidationError::WrongSolution) => {
-            rate_limiter.record_challenge_fail(user_ip, data.account_id);
+            rate_limiter
+                .lock()
+                .record_challenge_fail(user_ip, data.account_id);
             warn!(
                 "[{} @ {user_ip}] attempting to verify challenge with incorrect solution",
                 data.account_id
@@ -250,14 +256,19 @@ pub async fn challenge_verify(
         }
     };
 
+    rate_limiter
+        .lock()
+        .record_challenge_success(user_ip, data.account_id);
+
     // the challenge was verified! delete it and generate the authtoken
+    let state = state_shared.state_read().await;
+
     let challenge = state.erase_challenge(data.challenge_id).await;
-    assert!(challenge.is_some(), "challenge should exist after being verified");
-
-    rate_limiter.record_challenge_success(user_ip, data.account_id);
-    drop(rate_limiter);
-
-    let challenge = challenge.unwrap();
+    let Some(challenge) = challenge else {
+        return Err(ApiError::internal_server_error(
+            "challenge already consumed or expired, try again",
+        ));
+    };
 
     // if we wanted to force strong integrity but failed, return an error
     if challenge.force_strong && !strong {

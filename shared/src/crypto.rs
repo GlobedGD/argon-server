@@ -91,6 +91,10 @@ impl CryptoBox {
     }
 
     pub fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
+        if data.len() < Self::prefix_len() {
+            return Err(CryptoBoxError);
+        }
+
         let nonce_start = 0;
         let mac_start = nonce_start + Self::nonce_size();
         let ciphertext_start = mac_start + Self::mac_size();
