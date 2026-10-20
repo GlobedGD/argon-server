@@ -1,251 +1,74 @@
-#![feature(iterator_try_collect, iter_array_chunks)]
-#![allow(non_upper_case_globals, clippy::too_many_arguments, clippy::single_match)] // tbh
+mod migrations;
 
-use argon_shared::{data_dir, get_log_level, logger::*};
-use config::ServerConfig;
-use database::ArgonDbPool;
-use node_handler::NodeHandler;
-use rocket::{fs::FileServer, http::Method, routes};
-use state::{ServerState, ServerStateData};
-use std::{
-    error::Error,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use tokio::io::AsyncWriteExt;
+use cot::auth::db::DatabaseUserApp;
+use cot::cli::CliMetadata;
+use cot::db::migrations::SyncDynMigration;
+use cot::html::Html;
+use cot::middleware::{AuthMiddleware, LiveReloadMiddleware, SessionMiddleware};
+use cot::project::{MiddlewareContext, RegisterAppsContext, RootHandler, RootHandlerBuilder};
+use cot::request::extractors::StaticFiles;
+use cot::router::{Route, Router};
+use cot::session::db::SessionApp;
+use cot::static_files::{StaticFile, StaticFilesMiddleware};
+use cot::{App, AppBuilder, Project, Template, static_files};
 
-mod api_token_manager;
-mod config;
-mod database;
-mod health_state;
-mod ip_allowlist;
-mod ip_blocker;
-mod node_handler;
-mod rate_limiter;
-mod routes;
-mod schema;
-mod state;
-mod token_issuer;
-
-#[cfg(all(feature = "jemalloc", not(target_env = "msvc"), not(debug_assertions)))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-fn abort_misconfig() -> ! {
-    error!("aborting launch due to misconfiguration.");
-    std::process::exit(1);
+#[derive(Debug, Template)]
+#[template(path = "index.html")]
+struct IndexTemplate {
+    static_files: StaticFiles,
 }
 
-fn gen_secret_key() -> String {
-    let mut buf = [0u8; 32];
-    rand::fill(&mut buf);
-    hex::encode(buf)
+async fn index(static_files: StaticFiles) -> cot::Result<Html> {
+    let index_template = IndexTemplate { static_files };
+    let rendered = index_template.render()?;
+
+    Ok(Html::new(rendered))
 }
 
-#[rocket::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    // setup logger
+struct IndexApp;
 
-    if std::env::var("INSIDE_DOCKER").is_ok_and(|v| v != "0") {
-        std::env::set_current_dir("/data")?;
+impl App for IndexApp {
+    fn name(&self) -> &'static str {
+        "argon-server"
     }
 
-    let write_to_file = std::env::var("ARGON_NO_FILE_LOG")
-        .map(|p| p.parse::<i32>().unwrap())
-        .unwrap_or(0)
-        == 0;
-
-    log::set_logger(Logger::instance("argon_server", write_to_file)).unwrap();
-
-    if let Some(log_level) = get_log_level("ARGON_LOG_LEVEL") {
-        log::set_max_level(log_level);
-    } else {
-        log::set_max_level(LogLevelFilter::Warn);
-        error!("invalid value for the log level environment varaible");
-        warn!("hint: possible values are 'trace', 'debug', 'info', 'warn', 'error', and 'none'.");
-        abort_misconfig();
+    fn migrations(&self) -> Vec<Box<SyncDynMigration>> {
+        cot::db::migrations::wrap_migrations(migrations::MIGRATIONS)
     }
 
-    // create Rocket.toml if it doesn't exist
-    let rocket_toml =
-        std::env::var("ROCKET_CONFIG").map_or_else(|_| data_dir().join("Rocket.toml"), PathBuf::from);
-
-    if rocket_toml.file_name().is_none_or(|x| x != "Rocket.toml")
-        || !rocket_toml.parent().is_some_and(Path::exists)
-    {
-        error!("invalid value for ROCKET_CONFIG");
-        warn!("hint: the filename must be 'Rocket.toml' and the parent folder must exist on the disk");
-        abort_misconfig();
+    fn router(&self) -> Router {
+        Router::with_urls([Route::with_handler_and_name("/", index, "index")])
     }
 
-    if !rocket_toml.exists() {
-        info!("Creating a template Rocket.toml file");
-        let mut file = tokio::fs::File::create(rocket_toml).await?;
+    fn static_files(&self) -> Vec<StaticFile> {
+        static_files!("css/main.css")
+    }
+}
 
-        let data = include_str!("misc/Rocket.toml.template").to_owned();
-        let data = data.replace("$$ROCKET_SECRET_KEY$$", &gen_secret_key());
+struct ArgonCentralProject;
 
-        file.write_all(data.as_bytes()).await?;
+impl Project for ArgonCentralProject {
+    fn cli_metadata(&self) -> CliMetadata {
+        cot::cli::metadata!()
     }
 
-    // config file
-
-    let mut config_path = std::env::var("ARGON_CONFIG_PATH").map_or_else(|_| data_dir(), PathBuf::from);
-
-    if config_path.is_dir() {
-        config_path = config_path.join("config.json");
+    fn register_apps(&self, apps: &mut AppBuilder, _context: &RegisterAppsContext) {
+        apps.register_with_views(IndexApp, "");
+        // apps.register(DatabaseUserApp::new());
+        // apps.register(SessionApp::new());
     }
 
-    let config = if config_path.exists() && config_path.is_file() {
-        match ServerConfig::load(&config_path) {
-            Ok(x) => x,
-            Err(err) => {
-                error!("failed to open/parse configuration file: {err}");
-                warn!(
-                    "hint: if you don't have anything important there, delete the file for a new template to be created."
-                );
-                warn!("hint: the faulty configuration resides at: {config_path:?}");
-                abort_misconfig();
-            }
-        }
-    } else {
-        info!("Configuration file does not exist by given path, creating a template one.");
-
-        let conf = ServerConfig::default();
-        conf.save(&config_path)?;
-
-        conf
-    };
-
-    let handler_addr = if config.distributed_mode {
-        match config.handler_address.parse::<SocketAddr>() {
-            Ok(x) => Some(x),
-            Err(err) => {
-                error!("invalid address passed as the handler address: {err}");
-                warn!("hint: this is the listen address of the TCP socket that manages argon nodes");
-                warn!("hint: it should be in form ip:port, for example 0.0.0.0:4340");
-                warn!(
-                    "hint: this error happens because distributed mode is on, for simpler setup you can turn it off"
-                );
-                abort_misconfig();
-            }
-        }
-    } else {
-        None
-    };
-
-    // validate secret key
-
-    let mut tmp_buf = [0u8; 32];
-    if config.secret_key.len() != 64 || hex::decode_to_slice(&config.secret_key, &mut tmp_buf).is_err() {
-        error!("failed to decode the secret key in the config file");
-        warn!("hint: the key should be a hex-encoded 32-byte key");
-        warn!("hint: one can be generated using `openssl rand -hex 32`");
-        abort_misconfig();
+    fn middlewares(&self, handler: RootHandlerBuilder, context: &MiddlewareContext) -> RootHandler {
+        handler
+            .middleware(StaticFilesMiddleware::from_context(context))
+            .middleware(AuthMiddleware::new())
+            .middleware(SessionMiddleware::from_context(context))
+            .middleware(LiveReloadMiddleware::from_context(context))
+            .build()
     }
+}
 
-    // create db
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://db.sqlite".to_owned());
-    let database = ArgonDbPool::from_url(&database_url).expect("Failed to initialize the database");
-    let database = Arc::new(database);
-
-    // create state
-
-    let ssd = ServerStateData::new(config_path.clone(), config, database.clone());
-    let state = ServerState::new(ssd);
-
-    let node_handler = match NodeHandler::new(handler_addr, state.clone()).await {
-        Ok(x) => x,
-        Err(err) => {
-            error!("failed to create node handler: {err}");
-            warn!("hint: make sure that the port you are using is not already taken");
-            if handler_addr.is_some_and(|x| x.port() < 1024) {
-                warn!(
-                    "hint: you are also using a privileged port, note that ports below 1024 can only be used by the superuser"
-                );
-            }
-
-            warn!(
-                "hint: this error happens because distributed mode is on, for simpler setup you can turn it off"
-            );
-
-            abort_misconfig();
-        }
-    };
-
-    let node_handler = Arc::new(node_handler);
-    state.state_write().await.node_handler = Some(node_handler);
-
-    // start the node handler
-
-    let nh_state = state.clone();
-    tokio::spawn(async move {
-        let node_handler = nh_state.node_handler().await;
-        node_handler.run().await.unwrap();
-    });
-
-    // start periodic state cleanup
-    let cl_state = state.clone();
-    tokio::spawn(async move {
-        cl_state.run_cleanup_loop().await;
-    });
-
-    // start the token log worker
-    let tl_state = state.clone();
-    tokio::spawn(async move {
-        tl_state.run_token_log_worker().await;
-    });
-
-    // start rocket
-
-    let mut rocket = rocket::build()
-        .mount("/v1/", routes::build_v1_routes())
-        .mount("/", routes![routes::index])
-        .manage(database);
-
-    let dashboard_path = data_dir().join("./dashboard");
-    if dashboard_path.exists() {
-        rocket = rocket.mount("/dashboard", FileServer::from(dashboard_path));
-    }
-
-    if std::env::var("ARGON_DISABLE_CORS").is_ok_and(|x| x.parse::<i32>().unwrap_or(0) != 0) {
-        warn!("CORS is disabled, this is not recommended for production use");
-    } else {
-        rocket = rocket.attach(
-            rocket_cors::CorsOptions::default()
-                .allowed_origins(rocket_cors::AllowedOrigins::all())
-                .allowed_methods(
-                    vec![
-                        Method::Get,
-                        Method::Post,
-                        Method::Put,
-                        Method::Delete,
-                        Method::Options,
-                    ]
-                    .into_iter()
-                    .map(From::from)
-                    .collect(),
-                )
-                .allow_credentials(true)
-                .to_cors()?,
-        );
-    }
-
-    {
-        let state = state.state_read().await;
-
-        rocket = rocket
-            .manage(state.health_state.clone())
-            .manage(state.token_issuer.clone())
-            .manage(state.ip_blocker.clone())
-            .manage(state.rate_limiter.clone())
-            .manage(state.api_token_manager.clone());
-    }
-
-    let rocket = rocket.manage(state);
-
-    rocket.launch().await?;
-
-    Ok(())
+#[cot::main]
+fn main() -> impl Project {
+    ArgonCentralProject
 }
