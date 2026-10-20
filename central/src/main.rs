@@ -1,5 +1,6 @@
 mod migrations;
 
+use cot::admin::AdminApp;
 use cot::auth::db::DatabaseUserApp;
 use cot::cli::CliMetadata;
 use cot::db::migrations::SyncDynMigration;
@@ -11,6 +12,12 @@ use cot::router::{Route, Router};
 use cot::session::db::SessionApp;
 use cot::static_files::{StaticFile, StaticFilesMiddleware};
 use cot::{App, AppBuilder, Project, Template, static_files};
+
+use crate::api::ApiApp;
+use crate::api_legacy::LegacyApiApp;
+
+mod api;
+mod api_legacy;
 
 #[derive(Debug, Template)]
 #[template(path = "index.html")]
@@ -54,8 +61,10 @@ impl Project for ArgonCentralProject {
 
     fn register_apps(&self, apps: &mut AppBuilder, _context: &RegisterAppsContext) {
         apps.register_with_views(IndexApp, "");
-        // apps.register(DatabaseUserApp::new());
-        // apps.register(SessionApp::new());
+        apps.register_with_views(ApiApp::new(), "/v2/");
+        apps.register_with_views(LegacyApiApp::new(), "/v1/");
+        apps.register(DatabaseUserApp::new());
+        apps.register(SessionApp::new());
     }
 
     fn middlewares(&self, handler: RootHandlerBuilder, context: &MiddlewareContext) -> RootHandler {
