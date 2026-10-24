@@ -7,6 +7,7 @@ pub enum ChallengeType {
     #[default]
     Comment,
     ProfileField,
+    LegacyProfileField,
 }
 
 impl From<ResourceType> for ChallengeType {
@@ -14,6 +15,7 @@ impl From<ResourceType> for ChallengeType {
         match value {
             ResourceType::Level => ChallengeType::Comment,
             ResourceType::ProfileField => ChallengeType::ProfileField,
+            ResourceType::LegacyProfileField => ChallengeType::LegacyProfileField,
         }
     }
 }
@@ -23,6 +25,7 @@ impl From<ChallengeType> for ResourceType {
         match value {
             ChallengeType::Comment => ResourceType::Level,
             ChallengeType::ProfileField => ResourceType::ProfileField,
+            ChallengeType::LegacyProfileField => ResourceType::LegacyProfileField,
         }
     }
 }
@@ -49,9 +52,19 @@ fn solve_challenge(secret: u32) -> u32 {
     secret as u32
 }
 
+fn solve_challenge_legacy(secret: i32) -> i32 {
+    secret ^ 0x5F3759DF
+}
+
 /// Returns a pair (secret, answer) for an auth challenge
 pub fn compute_challenge_pair() -> (u32, u32) {
     let secret = rand::random();
     let answer = solve_challenge(secret);
     (secret, answer)
+}
+
+pub fn compute_challenge_pair_legacy() -> (u32, u32) {
+    let secret: i32 = rand::random();
+    let answer = solve_challenge_legacy(secret);
+    (secret as u32, answer as u32)
 }

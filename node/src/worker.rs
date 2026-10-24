@@ -113,7 +113,7 @@ impl NodeWorker {
             client: GDClient::new(config.gd.url.clone(), config.gd.auth_token.clone()),
             resources: resources
                 .into_iter()
-                .map(|key| (key, WorkerResource::new(key.r#type == ResourceType::ProfileField)))
+                .map(|key| (key, WorkerResource::new(uses_queue(key.r#type))))
                 .collect(),
             challenges: HashMap::new(),
             result_tx,
@@ -180,7 +180,11 @@ impl NodeWorker {
             let r_results = match key.r#type {
                 ResourceType::Level => Self::process_level_resource(&self.client, key, resource).await,
                 ResourceType::ProfileField => {
-                    Self::process_profile_field_resource(&self.client, resource).await
+                    Self::process_profile_field_resource(&self.client, resource, false).await
+                }
+
+                ResourceType::LegacyProfileField => {
+                    Self::process_profile_field_resource(&self.client, resource, true).await
                 }
             };
 
@@ -255,6 +259,7 @@ impl NodeWorker {
     async fn process_profile_field_resource(
         client: &GDClient,
         resource: &mut WorkerResource,
+        legacy: bool,
     ) -> Option<Vec<UserChallengeResult>> {
         if resource.pending_ids.is_empty() {
             return Some(Vec::new());
@@ -266,7 +271,10 @@ impl NodeWorker {
         let mut completed = Vec::new();
 
         for i in 0..BUDGET {
-            let challenge = resource.queue.as_ref().unwrap()[i];
+            let Some(challenge) = resource.queue.as_ref().unwrap().get(i) else {
+                break;
+            };
+
             let user_info = match client.get_user_info(challenge.account_id).await {
                 Ok(u) => u,
                 Err(e) => {
@@ -275,8 +283,25 @@ impl NodeWorker {
                 }
             };
 
-            let Some((id, secret)) = extract_id_and_secret_from_text(&user_info.custom) else {
-                continue;
+            let (id, secret) = if !legacy {
+                match extract_id_and_secret_from_text(&user_info.custom) {
+                    Some(ans) => ans,
+                    None => continue,
+                }
+            } else {
+                // legacy is more tricky, since the client never sent the challenge ID in the response,
+                // we need to find it ourselves given the account ID
+                let Some(secret) = extract_secret_from_legacy_text(&user_info.custom) else {
+                    continue;
+                };
+
+                let Some(challenge) =
+                    resource.pending_ids.iter().find(|c| c.account_id == user_info.account_id)
+                else {
+                    continue;
+                };
+
+                (challenge.challenge_id, secret)
             };
 
             // consider this challenge completed
@@ -300,10 +325,25 @@ impl NodeWorker {
 }
 
 fn extract_id_and_secret_from_text(text: &str) -> Option<(u32, u32)> {
-    // challenge answers have the format of "argon-<id>-<secret>"
+    // challenge answers have the format of "argon-<id>-<answer>"
     let text = text.strip_prefix("argon-")?;
     let (id_str, secret_str) = text.split_once('-')?;
     let id = id_str.parse::<u32>().ok()?;
     let secret = secret_str.parse::<u32>().ok()?;
     Some((id, secret))
+}
+
+fn extract_secret_from_legacy_text(text: &str) -> Option<u32> {
+    // legacy challenge answers have the format of "aRg<answer>"
+    let text = text.strip_prefix("aRg")?;
+    let secret = text.parse::<i32>().ok()?;
+    Some(secret as u32)
+}
+
+fn uses_queue(r#type: ResourceType) -> bool {
+    match r#type {
+        ResourceType::Level => false,
+        ResourceType::ProfileField => true,
+        ResourceType::LegacyProfileField => true,
+    }
 }

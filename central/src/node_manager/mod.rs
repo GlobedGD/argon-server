@@ -77,7 +77,15 @@ impl NodeManager {
                 let resource = AuthResource::new(r);
                 (resource.key(), resource)
             })
-            .collect();
+            .collect::<HashMap<_, _>>();
+
+        // if legacy mode is enabled, error if no legacy resource is added
+        let any_legacy = resources.values().any(|r| r.r#type == ResourceType::LegacyProfileField);
+        if config.legacy.enabled && !any_legacy {
+            error!("note: you enabled legacy API, but did not add a legacy resource for authentication.");
+            error!("disable legacy API or add a resource with type \"legacy_profile_field\"");
+            std::process::exit(1);
+        }
 
         NodeManager {
             resources,

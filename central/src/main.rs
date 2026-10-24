@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 
 use axum::Router;
 use tokio::net::TcpListener;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::{config::AppConfig, state::AppState};
 
@@ -32,10 +32,14 @@ async fn main() {
     let _guard = shared::logging::init(&config.logging);
     let state = AppState::new(&config).await;
 
-    let app = Router::new()
-        .nest("/v2/", routes::api::router())
-        .nest("/v1/", routes::api_legacy::router())
-        .with_state(state.clone());
+    let mut app = Router::new().nest("/v2/", routes::api::router());
+
+    // enable legacy routes, if enabled in config
+    if config.legacy.enabled {
+        app = app.nest("/v1/", routes::api_legacy::router())
+    }
+
+    let app = app.with_state(state.clone());
 
     // Run node manager
     tokio::spawn(state.node_manager.clone().run());

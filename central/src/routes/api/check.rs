@@ -4,7 +4,7 @@ use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use shared::message::GDAccountData;
 
-use crate::user::{TokenValidationError, UserManager};
+use crate::user::UserManager;
 
 use super::ApiResult;
 
@@ -26,7 +26,7 @@ pub async fn check(
 ) -> ApiResult<Json<CheckResponse>> {
     let account_data = match user_manager.validate_access_token(&body.token).await {
         Ok(data) => Some(data.account_data()),
-        Err(TokenValidationError::NotAccessToken) | Err(TokenValidationError::InvalidToken(_)) => None,
+        Err(e) if e.is_token_issue() => None,
         Err(e) => return Err(e.into()),
     };
 

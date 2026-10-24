@@ -11,7 +11,7 @@ pub struct TokenClaims {
     pub iat: u64,
     /// Epoch of the token, or 0 for tokens without an epoch
     pub epoch: u32,
-    /// Scope, currently "refresh" or "access"
+    /// Scope, currently "refresh", "access" or "legacy"
     pub scope: String,
     /// Account ID of the user
     pub sub: i32,

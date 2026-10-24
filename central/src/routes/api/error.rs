@@ -30,23 +30,25 @@ impl Error {
             Error::ChallengeStart(e) => e.error_code(),
         }
     }
-}
 
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
-        let status_code = match &self {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
             Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::MissingAuth => StatusCode::UNAUTHORIZED,
             Error::InvalidToken(e) => e.status_code(),
             Error::ChallengeStart(e) => e.status_code(),
-        };
+        }
+    }
+}
 
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
         let body = axum::Json(serde_json::json!({
             "error": self.to_string(),
             "code": self.error_code(),
         }));
 
-        (status_code, body).into_response()
+        (self.status_code(), body).into_response()
     }
 }

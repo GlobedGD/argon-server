@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    challenge::{ChallengeError, ChallengeType, compute_challenge_pair},
+    challenge::{ChallengeError, ChallengeType, compute_challenge_pair, compute_challenge_pair_legacy},
     config::AppConfig,
     node_manager::{NodeManager, node::ArgonNode},
 };
@@ -19,7 +19,7 @@ use shared::{
     message::{GDAccountData, UserChallengeOutcome},
     resource::ResourceKey,
 };
-use tracing::warn;
+use tracing::{error, warn};
 
 const CHALLENGE_TIMEOUT: Duration = Duration::from_secs(30);
 const CHALLENGE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(45);
@@ -62,14 +62,27 @@ pub struct ChallengeController {
     next_challenge_id: AtomicU32,
     pending_challenges: DashMap<u32, PendingChallenge>,
     node_manager: Arc<NodeManager>,
+    legacy_ident: Option<String>,
 }
 
 impl ChallengeController {
-    pub fn new(_config: &AppConfig, node_manager: Arc<NodeManager>) -> Self {
+    pub fn new(config: &AppConfig, node_manager: Arc<NodeManager>) -> Self {
+        let legacy_ident = if config.legacy.enabled {
+            if config.legacy.ident.is_none() {
+                error!("legacy API is enabled but the ident is not set, see README");
+                std::process::exit(1);
+            }
+
+            Some(config.legacy.ident.clone().unwrap())
+        } else {
+            None
+        };
+
         Self {
             next_challenge_id: AtomicU32::new(0),
             pending_challenges: DashMap::new(),
             node_manager,
+            legacy_ident,
         }
     }
 
@@ -84,6 +97,10 @@ impl ChallengeController {
         &self.node_manager
     }
 
+    pub fn get_legacy_ident(&self) -> Option<&str> {
+        self.legacy_ident.as_deref()
+    }
+
     pub fn start_challenge(
         &self,
         account_id: i32,
@@ -93,8 +110,13 @@ impl ChallengeController {
             return Err(ChallengeError::TooManyChallengesInProgress);
         }
 
+        let is_legacy = challenge_type == ChallengeType::LegacyProfileField;
         let (resource_key, node) = self.find_resource_for_challenge(challenge_type)?;
-        let (secret, answer) = compute_challenge_pair();
+        let (secret, answer) = if is_legacy {
+            compute_challenge_pair_legacy()
+        } else {
+            compute_challenge_pair()
+        };
         let challenge_id = self.next_challenge_id.fetch_add(1, Ordering::Relaxed);
 
         // tell the node to start watching for the challenge result
@@ -121,9 +143,13 @@ impl ChallengeController {
         })
     }
 
+    pub fn start_legacy_challenge(&self, account_id: i32) -> Result<ChallengeData, ChallengeError> {
+        self.start_challenge(account_id, ChallengeType::LegacyProfileField)
+    }
+
     pub fn poll_challenge(&self, challenge_id: u32) -> Result<Option<GDAccountData>, ChallengeError> {
         let node = match self.pending_challenges.get(&challenge_id) {
-            None => Err(ChallengeError::ChallengeNotFound)?,
+            None => return Err(ChallengeError::ChallengeNotFound),
             Some(c) => c.node.clone(),
         };
 

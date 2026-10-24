@@ -9,6 +9,7 @@ use strum::EnumIter;
 pub enum ResourceType {
     Level,
     ProfileField,
+    LegacyProfileField,
 }
 
 /// A resource key uniquely identifies a specific verification resource

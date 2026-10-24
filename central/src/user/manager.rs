@@ -35,6 +35,10 @@ impl UserManager {
         self.generate_new_token_pair(account_data).await
     }
 
+    pub async fn on_legacy_challenge_completed(&self, account_data: &GDAccountData) -> String {
+        self.token_issuer.generate_legacy_token(account_data)
+    }
+
     pub async fn generate_new_token_pair(&self, account_data: &GDAccountData) -> Result<RefreshedTokenPair> {
         let account_id = account_data.account_id;
         let user = self.user_repository.get_user(account_id).await?;
@@ -103,13 +107,24 @@ impl UserManager {
         Ok(claims)
     }
 
+    /// Validates that the token either is a v2 access token or a v1 legacy token.
+    /// For legacy tokens, since they usually have a much longer expiry window,
+    /// this will make a DB lookup to confirm advanced auth isn't enabled for the user
     pub async fn validate_access_token(
         &self,
         token: &str,
     ) -> std::result::Result<TokenClaims, TokenValidationError> {
         let claims = self.token_issuer.validate_token(token)?;
-        if claims.scope != "access" {
-            return Err(TokenValidationError::NotAccessToken);
+        if claims.scope == "access" {
+            return Ok(claims);
+        } else if claims.scope != "legacy" {
+            return Err(TokenValidationError::NotAccessOrLegacyToken);
+        }
+
+        let user = self.user_repository.get_user(claims.account_id()).await?;
+        if user.is_some_and(|u| u.advanced_auth) {
+            // we cannot grant this token access, legacy tokens are unsafe when advanced auth is enabled
+            return Err(TokenValidationError::LegacyTokenNotAllowed);
         }
 
         Ok(claims)

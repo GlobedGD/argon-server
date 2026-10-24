@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub legacy: LegacyConfig,
 }
 
 #[derive(Debug, Error)]
@@ -157,5 +159,28 @@ fn default_refresh_token_expiry() -> Duration {
 }
 
 fn default_access_token_expiry() -> Duration {
-    Duration::from_days(1)
+    Duration::from_mins(15)
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct LegacyConfig {
+    pub enabled: bool,
+    pub ident: Option<String>,
+    #[serde(with = "humantime_serde", default = "default_legacy_token_expiry")]
+    pub token_expiry: Duration,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ident: None,
+            token_expiry: default_legacy_token_expiry(),
+        }
+    }
+}
+
+fn default_legacy_token_expiry() -> Duration {
+    Duration::from_days(7)
 }
