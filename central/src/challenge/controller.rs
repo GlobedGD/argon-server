@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -32,6 +32,7 @@ struct PendingChallenge {
     started_at: Instant,
     node: Arc<ArgonNode>,
     still_pending: AtomicBool,
+    polled: AtomicBool,
     result: Mutex<Option<Result<GDAccountData, ChallengeError>>>,
 }
 
@@ -50,6 +51,14 @@ impl PendingChallenge {
     pub fn get_result(&self) -> Result<Option<GDAccountData>, ChallengeError> {
         self.result.lock().take().transpose()
     }
+
+    pub fn on_poll(&self) {
+        if !self.polled.swap(true, Ordering::Relaxed) {
+            // once the user polls the challenge endpoint, we know they submitted the result to GD api,
+            // and this means we can tell the node handling this request to start actively expecting the result.
+            self.node.queue_should_poll(self.id);
+        }
+    }
 }
 
 impl Drop for PendingChallenge {
@@ -59,7 +68,6 @@ impl Drop for PendingChallenge {
 }
 
 pub struct ChallengeController {
-    next_challenge_id: AtomicU32,
     pending_challenges: DashMap<u32, PendingChallenge>,
     node_manager: Arc<NodeManager>,
     legacy_ident: Option<String>,
@@ -79,7 +87,6 @@ impl ChallengeController {
         };
 
         Self {
-            next_challenge_id: AtomicU32::new(0),
             pending_challenges: DashMap::new(),
             node_manager,
             legacy_ident,
@@ -110,6 +117,10 @@ impl ChallengeController {
             return Err(ChallengeError::TooManyChallengesInProgress);
         }
 
+        if !self.node_manager.any_nodes_up() {
+            return Err(ChallengeError::NoAvailableResource);
+        }
+
         let is_legacy = challenge_type == ChallengeType::LegacyProfileField;
         let (resource_key, node) = self.find_resource_for_challenge(challenge_type)?;
         let (secret, answer) = if is_legacy {
@@ -117,7 +128,7 @@ impl ChallengeController {
         } else {
             compute_challenge_pair()
         };
-        let challenge_id = self.next_challenge_id.fetch_add(1, Ordering::Relaxed);
+        let challenge_id = rand::random();
 
         // tell the node to start watching for the challenge result
         node.queue_challenge(resource_key, account_id, challenge_id);
@@ -130,6 +141,7 @@ impl ChallengeController {
                 account_id,
                 started_at: Instant::now(),
                 node,
+                polled: AtomicBool::new(false),
                 still_pending: AtomicBool::new(true),
                 result: Mutex::new(None),
             },
@@ -147,10 +159,22 @@ impl ChallengeController {
         self.start_challenge(account_id, ChallengeType::LegacyProfileField)
     }
 
-    pub fn poll_challenge(&self, challenge_id: u32) -> Result<Option<GDAccountData>, ChallengeError> {
+    pub fn poll_challenge(
+        &self,
+        challenge_id: u32,
+        account_id: i32,
+        answer: u32,
+    ) -> Result<Option<GDAccountData>, ChallengeError> {
         let node = match self.pending_challenges.get(&challenge_id) {
             None => return Err(ChallengeError::ChallengeNotFound),
-            Some(c) => c.node.clone(),
+            Some(c) => {
+                // verify that we aren't passing bogus data
+                if c.answer != answer || c.account_id != account_id {
+                    return Err(ChallengeError::IncorrectAnswer);
+                }
+
+                c.node.clone()
+            }
         };
 
         // drive progres on all messages, unconditionally
@@ -160,6 +184,8 @@ impl ChallengeController {
         let result = {
             let challenge =
                 self.pending_challenges.get(&challenge_id).ok_or(ChallengeError::ChallengeNotFound)?;
+
+            challenge.on_poll();
 
             if challenge.started_at.elapsed() > CHALLENGE_TIMEOUT {
                 Err(ChallengeError::TimedOut)
@@ -227,6 +253,10 @@ impl ChallengeController {
     ) -> Result<ChallengeType, ChallengeError> {
         // challenge types sorted in order of preference
         const ALL_CHALLENGES: &[ChallengeType] = &[ChallengeType::Comment, ChallengeType::ProfileField];
+
+        if !self.node_manager.any_nodes_up() {
+            return Err(ChallengeError::NoAvailableResource);
+        }
 
         for &c in ALL_CHALLENGES {
             if !client_supported.contains(&c) {

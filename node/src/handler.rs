@@ -164,11 +164,13 @@ impl Node {
             ArgonNodeMessage::Challenges {
                 challenges,
                 cleanups,
+                should_poll,
             } => {
                 let _ = challenges_tx
                     .send(NodeWorkerChallenges {
                         challenges,
                         cleanups,
+                        should_poll,
                     })
                     .await;
             }
@@ -216,8 +218,8 @@ impl Node {
         } else {
             // otherwise, this is likely a domain name
             let (hostname, port) = match address.split_once(':') {
-                Some((host, port)) => (host.to_owned(), port.parse::<u16>().unwrap_or(8081)),
-                None => (address.clone(), 8081),
+                Some((host, port)) => (host.to_owned(), port.parse::<u16>().unwrap_or(8001)),
+                None => (address.clone(), 8001),
             };
 
             client.connect_opts(ConnectOptions::new_hostname(&hostname, Some(port), ConnectionType::Quic))?;

@@ -23,6 +23,7 @@ pub struct ArgonNode {
     total_challenges_completed: AtomicU32,
 
     queued_challenges: Mutex<Vec<UserChallenge>>,
+    queued_should_poll: Mutex<Vec<u32>>,
     queued_cleanups: Mutex<Vec<u32>>,
     pending_results: Mutex<Vec<UserChallengeResult>>,
 }
@@ -38,6 +39,7 @@ impl ArgonNode {
             poor_perf_counter: AtomicU32::new(0),
             total_challenges_completed: AtomicU32::new(0),
             queued_challenges: Mutex::new(Vec::new()),
+            queued_should_poll: Mutex::new(Vec::new()),
             queued_cleanups: Mutex::new(Vec::new()),
             pending_results: Mutex::new(Vec::new()),
         }
@@ -92,6 +94,10 @@ impl ArgonNode {
         self.queued_cleanups.lock().push(challenge_id);
     }
 
+    pub fn queue_should_poll(&self, challenge_id: u32) {
+        self.queued_should_poll.lock().push(challenge_id);
+    }
+
     pub fn queue_results(&self, results: &[UserChallengeResult]) {
         self.pending_results.lock().extend(results.iter().cloned());
 
@@ -113,6 +119,10 @@ impl ArgonNode {
 
     pub fn get_queued_cleanups(&self) -> Vec<u32> {
         std::mem::take(&mut *self.queued_cleanups.lock())
+    }
+
+    pub fn get_queued_should_poll(&self) -> Vec<u32> {
+        std::mem::take(&mut *self.queued_should_poll.lock())
     }
 
     pub fn get_pending_results(&self) -> Vec<UserChallengeResult> {

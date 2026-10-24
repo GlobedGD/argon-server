@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/validation/check", get(validation::check))
         .route("/validation/check-many", post(validation::check_many))
         .route("/validation/check-strong", get(validation::check_strong))
+        .route("/validation/check_strong", get(validation::check_strong))
         .route("/validation/check-strong-many", post(validation::check_strong_many))
         .route("/validation/check-data-many", post(validation::check_data_many))
         .route("/status", get(status::status))

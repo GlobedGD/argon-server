@@ -12,8 +12,12 @@ pub enum Error {
     Api(#[from] ApiError),
     #[error("unsupported challenge type")]
     UnsupportedChallengeType,
+    #[error("argon verification is down")]
+    StatusArgonDown,
     #[error("identity in token does not match the given user")]
     IdentityMismatch,
+    #[error("too many users in request, maximum is 50")]
+    TooManyUsersInRequest,
 }
 
 impl From<ChallengeError> for Error {
@@ -33,6 +37,8 @@ impl IntoResponse for Error {
         let status_code = match &self {
             Error::UnsupportedChallengeType => StatusCode::BAD_REQUEST,
             Error::IdentityMismatch => StatusCode::UNAUTHORIZED,
+            Error::StatusArgonDown => StatusCode::NOT_ACCEPTABLE, // 406
+            Error::TooManyUsersInRequest => StatusCode::BAD_REQUEST,
             Error::Api(e) => e.status_code(),
         };
 

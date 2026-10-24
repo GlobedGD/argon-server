@@ -11,6 +11,8 @@ use crate::{
     user::UserManager,
 };
 
+const MAX_USERS_IN_REQUEST: usize = 50;
+
 #[derive(Deserialize)]
 pub struct CheckDataQuery {
     account_id: i32,
@@ -20,6 +22,7 @@ pub struct CheckDataQuery {
 #[derive(Serialize)]
 pub struct CheckResponse {
     valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     cause: Option<String>,
 }
 
@@ -118,6 +121,10 @@ pub async fn check_many(
 ) -> LegacyApiResult<Json<CheckManyResponse>> {
     let mut out = Vec::new();
 
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        return Err(LegacyApiError::TooManyUsersInRequest);
+    }
+
     for user in data.users {
         let response = check_inner(&user.token, user.id, &user_manager).await;
         out.push(CheckResponseId {
@@ -141,7 +148,9 @@ pub struct CheckStrongQuery {
 pub struct CheckStrongResponse {
     valid: bool,
     valid_weak: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     cause: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
 }
 
@@ -187,6 +196,10 @@ pub async fn check_strong_many(
 ) -> LegacyApiResult<Json<CheckStrongManyResponse>> {
     let mut out = Vec::new();
 
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        return Err(LegacyApiError::TooManyUsersInRequest);
+    }
+
     for user in data.users {
         let response = check_strong_inner(&user.token, user.id, user.user_id, user.name, &user_manager).await;
 
@@ -205,6 +218,7 @@ pub struct CheckDataResponse {
     valid: bool,
     user_id: Option<i32>,
     username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     cause: Option<String>,
 }
 
@@ -218,6 +232,10 @@ pub async fn check_data_many(
     Json(data): Json<CheckManyData>,
 ) -> LegacyApiResult<Json<CheckDataManyResponse>> {
     let mut out = Vec::new();
+
+    if data.users.len() > MAX_USERS_IN_REQUEST {
+        return Err(LegacyApiError::TooManyUsersInRequest);
+    }
 
     for user in data.users {
         let result = match user_manager.validate_access_token(&user.token).await {

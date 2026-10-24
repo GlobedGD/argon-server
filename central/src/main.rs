@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 
 use axum::Router;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{config::AppConfig, state::AppState};
 

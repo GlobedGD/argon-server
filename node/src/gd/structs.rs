@@ -1,4 +1,5 @@
 use shared::message::GDAccountData;
+use tracing::warn;
 
 use crate::gd::{CSKVMap, ParseError, Parseable};
 
@@ -74,8 +75,10 @@ impl Parseable for Vec<LevelComment> {
 
         let data = data.split_once('#').unwrap_or((data, "")).0;
         for part in data.split('|').filter(|x| !x.is_empty()) {
-            let comment = LevelComment::parse(part)?;
-            out.push(comment);
+            match LevelComment::parse(part) {
+                Ok(comment) => out.push(comment),
+                Err(e) => warn!("failed to parse level comment '{part}': {e:?}"),
+            }
         }
 
         Ok(out)

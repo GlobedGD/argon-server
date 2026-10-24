@@ -1,6 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    sync::atomic::{AtomicU32, Ordering},
+    collections::{HashMap, VecDeque},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
     time::Duration,
 };
 
@@ -16,54 +19,51 @@ use tracing::{debug, error, info, warn};
 
 use crate::{config::NodeConfig, gd::Client as GDClient};
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct PendingAnswerChallenge {
+struct PendingChallenge {
     account_id: i32,
     challenge_id: u32,
+    should_poll: AtomicBool,
+    resource: ResourceKey,
 }
 
 struct WorkerResource {
-    pending_ids: HashSet<PendingAnswerChallenge>,
-    queue: Option<VecDeque<PendingAnswerChallenge>>,
+    pending_ids: HashMap<u32, Arc<PendingChallenge>>,
+    queue: Option<VecDeque<Arc<PendingChallenge>>>,
     consecutive_errors: AtomicU32,
 }
 
 impl WorkerResource {
     pub fn new(uses_queue: bool) -> Self {
         Self {
-            pending_ids: HashSet::new(),
+            pending_ids: HashMap::new(),
             queue: uses_queue.then_some(VecDeque::new()),
             consecutive_errors: AtomicU32::new(0),
         }
     }
 
-    pub fn add_pending(&mut self, account_id: i32, challenge_id: u32) {
-        let pending = PendingAnswerChallenge {
-            account_id,
-            challenge_id,
-        };
-        self.pending_ids.insert(pending);
+    pub fn add_pending(&mut self, challenge: Arc<PendingChallenge>) {
+        self.pending_ids.insert(challenge.challenge_id, challenge.clone());
         if let Some(queue) = &mut self.queue {
-            queue.push_back(pending);
+            queue.push_back(challenge);
         }
     }
 
     /// Returns whether removal was successful
-    pub fn remove_pending(&mut self, account_id: i32, challenge_id: u32) -> bool {
-        let pending = PendingAnswerChallenge {
-            account_id,
-            challenge_id,
-        };
-
-        let result = self.pending_ids.remove(&pending);
-        if let Some(queue) = &mut self.queue {
-            queue.retain(|&id| id != pending);
+    pub fn remove_pending(&mut self, challenge_id: u32, account_id: i32) -> bool {
+        let challenge = self.pending_ids.get(&challenge_id);
+        if challenge.is_some_and(|c| c.account_id == account_id) {
+            self.pending_ids.remove(&challenge_id);
+            if let Some(queue) = &mut self.queue {
+                queue.retain(|c| c.challenge_id != challenge_id);
+            }
+            true
+        } else {
+            false // not found or account_id mismatch
         }
-        result
     }
 
-    pub fn evict_all(&mut self) -> Vec<PendingAnswerChallenge> {
-        let evicted = self.pending_ids.drain().collect::<Vec<_>>();
+    pub fn evict_all(&mut self) -> Vec<Arc<PendingChallenge>> {
+        let evicted = self.pending_ids.drain().map(|(_, c)| c).collect::<Vec<_>>();
         if let Some(queue) = &mut self.queue {
             queue.clear();
         }
@@ -83,21 +83,16 @@ impl WorkerResource {
     }
 }
 
-struct PendingChallenge {
-    account_id: i32,
-    challenge_id: u32,
-    resource: ResourceKey,
-}
-
 pub struct NodeWorkerChallenges {
     pub challenges: Vec<UserChallenge>,
     pub cleanups: Vec<u32>,
+    pub should_poll: Vec<u32>,
 }
 
 pub struct NodeWorker {
     client: GDClient,
     resources: HashMap<ResourceKey, WorkerResource>,
-    challenges: HashMap<u32, PendingChallenge>,
+    challenges: HashMap<u32, Arc<PendingChallenge>>,
     result_tx: mpsc::Sender<UserChallengeResult>,
     incoming_rx: mpsc::Receiver<NodeWorkerChallenges>,
 }
@@ -123,20 +118,19 @@ impl NodeWorker {
 
     pub fn handle_new_challenges(&mut self, challenges: &[UserChallenge]) {
         for c in challenges {
-            if let Some(resource) = self.resources.get_mut(&c.resource) {
-                resource.add_pending(c.account_id, c.challenge_id);
-            } else {
+            let Some(resource) = self.resources.get_mut(&c.resource) else {
                 continue;
-            }
+            };
 
-            self.challenges.insert(
-                c.challenge_id,
-                PendingChallenge {
-                    account_id: c.account_id,
-                    challenge_id: c.challenge_id,
-                    resource: c.resource,
-                },
-            );
+            let challenge = Arc::new(PendingChallenge {
+                account_id: c.account_id,
+                challenge_id: c.challenge_id,
+                should_poll: AtomicBool::new(should_poll_eager(c.resource.r#type)),
+                resource: c.resource,
+            });
+
+            resource.add_pending(challenge.clone());
+            self.challenges.insert(c.challenge_id, challenge);
         }
     }
 
@@ -147,8 +141,18 @@ impl NodeWorker {
             };
 
             if let Some(resource) = self.resources.get_mut(&challenge.resource) {
-                resource.remove_pending(challenge.account_id, challenge.challenge_id);
+                resource.remove_pending(challenge.challenge_id, challenge.account_id);
             }
+        }
+    }
+
+    pub fn handle_should_poll(&mut self, ids: &[u32]) {
+        for id in ids {
+            let Some(challenge) = self.challenges.get(id) else {
+                continue;
+            };
+
+            challenge.should_poll.store(true, Ordering::Relaxed);
         }
     }
 
@@ -165,6 +169,7 @@ impl NodeWorker {
                 Some(msg) = self.incoming_rx.recv() => {
                     self.handle_new_challenges(&msg.challenges);
                     self.cleanup_challenges(&msg.cleanups);
+                    self.handle_should_poll(&msg.should_poll);
                 }
             }
         }
@@ -191,6 +196,10 @@ impl NodeWorker {
             if let Some(r_results) = r_results {
                 results.extend(r_results);
                 resource.reset_errors();
+
+                for result in &results {
+                    self.challenges.remove(&result.challenge_id);
+                }
             } else {
                 resource.on_error();
                 if resource.consecutive_errors() >= 5 {
@@ -203,6 +212,8 @@ impl NodeWorker {
                             UserChallengeOutcome::ResourceFailing,
                         ));
                     }
+
+                    self.challenges.retain(|_, c| c.resource != key);
                 }
             }
         }
@@ -238,7 +249,7 @@ impl NodeWorker {
             };
 
             // is there a valid challenge for this id & user?
-            if !resource.remove_pending(comment.account_id, id) {
+            if !resource.remove_pending(id, comment.account_id) {
                 debug!("ignoring bogus comment for challenge {} from user {}", id, comment.account_id);
                 continue;
             }
@@ -266,14 +277,24 @@ impl NodeWorker {
         }
 
         // fetch up to 3 users at once
-        const BUDGET: usize = 3;
+        let mut budget = 3;
+        let mut i = 0;
 
         let mut completed = Vec::new();
+        let queue = resource.queue.as_ref().unwrap();
 
-        for i in 0..BUDGET {
-            let Some(challenge) = resource.queue.as_ref().unwrap().get(i) else {
+        while budget > 0 {
+            let Some(challenge) = queue.get(i) else {
                 break;
             };
+
+            i += 1;
+            if !challenge.should_poll.load(Ordering::Relaxed) {
+                continue;
+            }
+
+            // decrement budget once we get to the part where we actually fetch something
+            budget -= 1;
 
             let user_info = match client.get_user_info(challenge.account_id).await {
                 Ok(u) => u,
@@ -295,13 +316,13 @@ impl NodeWorker {
                     continue;
                 };
 
-                let Some(challenge) =
-                    resource.pending_ids.iter().find(|c| c.account_id == user_info.account_id)
-                else {
+                let Some((&id, _)) = resource.pending_ids.iter().find(|(_, c)| {
+                    c.account_id == user_info.account_id && c.should_poll.load(Ordering::Relaxed)
+                }) else {
                     continue;
                 };
 
-                (challenge.challenge_id, secret)
+                (id, secret)
             };
 
             // consider this challenge completed
@@ -316,9 +337,7 @@ impl NodeWorker {
 
         // remove all completed challenges from queue and resource tracker,
         // we do it outside of the loop to keep the index stable
-        for c in &completed {
-            resource.remove_pending(c.account_id, c.challenge_id);
-        }
+        completed.retain(|c| resource.remove_pending(c.challenge_id, c.account_id));
 
         Some(completed)
     }
@@ -345,5 +364,13 @@ fn uses_queue(r#type: ResourceType) -> bool {
         ResourceType::Level => false,
         ResourceType::ProfileField => true,
         ResourceType::LegacyProfileField => true,
+    }
+}
+
+fn should_poll_eager(r#type: ResourceType) -> bool {
+    match r#type {
+        ResourceType::Level => true,
+        ResourceType::ProfileField => false,
+        ResourceType::LegacyProfileField => false,
     }
 }

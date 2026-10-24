@@ -47,6 +47,7 @@ impl Client {
             client: reqwest::Client::builder()
                 .user_agent("")
                 .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(5))
                 .default_headers(headers)
                 .build()
                 .expect("failed to build http client"),

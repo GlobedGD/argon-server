@@ -73,6 +73,8 @@ pub async fn refresh(
 #[derive(Deserialize)]
 pub struct VerifyData {
     challenge_id: u32,
+    account_id: i32,
+    answer: u32,
 }
 
 #[derive(Serialize)]
@@ -88,7 +90,7 @@ pub async fn verify(
     State(user_manager): State<Arc<UserManager>>,
     Json(data): Json<VerifyData>,
 ) -> ApiResult<Json<VerifyResponse>> {
-    let account_data = controller.poll_challenge(data.challenge_id)?;
+    let account_data = controller.poll_challenge(data.challenge_id, data.account_id, data.answer)?;
 
     let Some(account_data) = account_data else {
         // still not complete

@@ -18,6 +18,7 @@ pub struct ChallengeStartData {
     username: String,
     force_strong: bool,
     req_mod: String,
+    #[serde(default)]
     preferred: String,
 }
 
@@ -38,7 +39,7 @@ pub async fn start(
     // v1 argon client did not care about returned method and always assumed that the actual used method is whatever it prefers.
     // and some older versions did not even support profile field auth to begin with, so to alleviate both issues,
     // simply return an error if preferred type is not profile field
-    if data.preferred != "profile_field" {
+    if !data.preferred.is_empty() && data.preferred != "profile_field" {
         return Err(LegacyApiError::UnsupportedChallengeType);
     }
 
@@ -76,7 +77,8 @@ pub async fn poll(
     State(user_manager): State<Arc<UserManager>>,
     Json(data): Json<ChallengeVerifyData>,
 ) -> LegacyApiResult<Json<LegacyApiResponse<ChallengeVerifyResponse>>> {
-    let account_data = controller.poll_challenge(data.challenge_id)?;
+    let answer = data.solution.parse::<i32>().unwrap_or(0) as u32;
+    let account_data = controller.poll_challenge(data.challenge_id, data.account_id, answer)?;
 
     let response = match account_data {
         Some(data) => {

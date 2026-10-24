@@ -43,7 +43,7 @@ impl AppState {
     }
 
     pub fn token_issuer(&self) -> &TokenIssuer {
-        &self.user_manager.token_issuer()
+        self.user_manager.token_issuer()
     }
 
     pub async fn run_maintenance_tasks(self) {

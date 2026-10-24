@@ -62,6 +62,7 @@ pub struct NodeManager {
     config: NodeHandlerConfig,
 
     nodes: AsyncMutex<Vec<Arc<ArgonNode>>>,
+    node_count: AtomicUsize,
     client_map: DashMap<u64, Arc<ClientState<NodeMessageHandler>>>,
 
     resource_pool: DashMap<ResourceType, RoundRobinPool>,
@@ -90,6 +91,7 @@ impl NodeManager {
         NodeManager {
             resources,
             nodes: AsyncMutex::new(Vec::new()),
+            node_count: AtomicUsize::new(0),
             client_map: DashMap::new(),
             server: Mutex::new(None),
             config: config.node_handler.clone(),
@@ -102,7 +104,7 @@ impl NodeManager {
             error!("TLS certificate or key is not configured. Node manager will not work.");
             error!("Add a [node_handler] section in config.toml and specify tls_cert and tls_key.");
             error!("See README for more details.");
-            std::process::exit(0);
+            std::process::exit(1);
         }
 
         if self.config.secret_key.len() < 16 {
@@ -110,7 +112,7 @@ impl NodeManager {
                 "Secret key is not configured or too short (must be 16 chars or more), refusing to start server with insecure configuration."
             );
             error!("See README for more details.");
-            std::process::exit(0);
+            std::process::exit(1);
         }
 
         let server = Server::builder()
@@ -156,8 +158,9 @@ impl NodeManager {
                 // send all accumulated challenges / cleanups to this node
                 let challenges = node.get_queued_challenges();
                 let cleanups = node.get_queued_cleanups();
+                let should_poll = node.get_queued_should_poll();
 
-                if challenges.is_empty() && cleanups.is_empty() {
+                if challenges.is_empty() && cleanups.is_empty() && should_poll.is_empty() {
                     continue;
                 }
 
@@ -166,6 +169,7 @@ impl NodeManager {
                     &ArgonNodeMessage::Challenges {
                         challenges,
                         cleanups,
+                        should_poll,
                     },
                 );
             }
@@ -214,6 +218,7 @@ impl NodeManager {
 
         self.nodes.lock().await.push(node.clone());
         self.client_map.insert(node.id, client.clone());
+        self.node_count.fetch_add(1, Ordering::Relaxed);
 
         let resources = self.pick_free_resources(&node);
         if resources.is_empty() {
@@ -233,6 +238,7 @@ impl NodeManager {
 
         self.client_map.remove(&node.id);
         self.nodes.lock().await.retain(|n| !Arc::ptr_eq(n, &node));
+        self.node_count.fetch_sub(1, Ordering::Relaxed);
 
         let used_resources = std::mem::take(&mut *node.used_resources.lock());
         self.release_resources(&node, &used_resources);
@@ -304,6 +310,10 @@ impl NodeManager {
 
     pub async fn get_nodes(&self) -> Vec<Arc<ArgonNode>> {
         self.nodes.lock().await.clone()
+    }
+
+    pub fn any_nodes_up(&self) -> bool {
+        self.node_count.load(Ordering::Relaxed) > 0
     }
 
     fn compute_candidates_for_challenge(

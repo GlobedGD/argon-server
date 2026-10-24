@@ -76,6 +76,7 @@ pub enum ArgonNodeMessage {
     Challenges {
         challenges: Vec<UserChallenge>,
         cleanups: Vec<u32>,
+        should_poll: Vec<u32>,
     },
 
     ChallengeResults {
