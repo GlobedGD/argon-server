@@ -1,83 +1,53 @@
-mod migrations;
+#![feature(duration_constructors)]
+#![allow(clippy::module_inception)]
 
-use cot::admin::AdminApp;
-use cot::auth::db::DatabaseUserApp;
-use cot::cli::CliMetadata;
-use cot::db::migrations::SyncDynMigration;
-use cot::html::Html;
-use cot::middleware::{AuthMiddleware, LiveReloadMiddleware, SessionMiddleware};
-use cot::project::{MiddlewareContext, RegisterAppsContext, RootHandler, RootHandlerBuilder};
-use cot::request::extractors::StaticFiles;
-use cot::router::{Route, Router};
-use cot::session::db::SessionApp;
-use cot::static_files::{StaticFile, StaticFilesMiddleware};
-use cot::{App, AppBuilder, Project, Template, static_files};
+use std::net::SocketAddr;
 
-use crate::api::ApiApp;
-use crate::api_legacy::LegacyApiApp;
+use axum::Router;
+use tokio::net::TcpListener;
+use tracing::info;
 
-mod api;
-mod api_legacy;
+use crate::{config::AppConfig, state::AppState};
 
-#[derive(Debug, Template)]
-#[template(path = "index.html")]
-struct IndexTemplate {
-    static_files: StaticFiles,
+pub mod challenge;
+pub mod config;
+pub mod db;
+pub mod node_manager;
+mod routes;
+pub mod state;
+pub mod token;
+pub mod user;
+pub mod util;
+
+#[tokio::main]
+async fn main() {
+    let config = match AppConfig::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to load configuration: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let _guard = shared::logging::init(&config.logging);
+    let state = AppState::new(&config).await;
+
+    let app = Router::new()
+        .nest("/v2/", routes::api::router())
+        .nest("/v1/", routes::api_legacy::router())
+        .with_state(state.clone());
+
+    // Run node manager
+    tokio::spawn(state.node_manager.clone().run());
+
+    // run maintenace tasks in bg
+    tokio::spawn(state.clone().run_maintenance_tasks());
+
+    info!("Starting HTTP server on {}", config.http.bind);
+
+    let listener = TcpListener::bind(config.http.bind).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
 
-async fn index(static_files: StaticFiles) -> cot::Result<Html> {
-    let index_template = IndexTemplate { static_files };
-    let rendered = index_template.render()?;
-
-    Ok(Html::new(rendered))
-}
-
-struct IndexApp;
-
-impl App for IndexApp {
-    fn name(&self) -> &'static str {
-        "argon-server"
-    }
-
-    fn migrations(&self) -> Vec<Box<SyncDynMigration>> {
-        cot::db::migrations::wrap_migrations(migrations::MIGRATIONS)
-    }
-
-    fn router(&self) -> Router {
-        Router::with_urls([Route::with_handler_and_name("/", index, "index")])
-    }
-
-    fn static_files(&self) -> Vec<StaticFile> {
-        static_files!("css/main.css")
-    }
-}
-
-struct ArgonCentralProject;
-
-impl Project for ArgonCentralProject {
-    fn cli_metadata(&self) -> CliMetadata {
-        cot::cli::metadata!()
-    }
-
-    fn register_apps(&self, apps: &mut AppBuilder, _context: &RegisterAppsContext) {
-        apps.register_with_views(IndexApp, "");
-        apps.register_with_views(ApiApp::new(), "/v2/");
-        apps.register_with_views(LegacyApiApp::new(), "/v1/");
-        apps.register(DatabaseUserApp::new());
-        apps.register(SessionApp::new());
-    }
-
-    fn middlewares(&self, handler: RootHandlerBuilder, context: &MiddlewareContext) -> RootHandler {
-        handler
-            .middleware(StaticFilesMiddleware::from_context(context))
-            .middleware(AuthMiddleware::new())
-            .middleware(SessionMiddleware::from_context(context))
-            .middleware(LiveReloadMiddleware::from_context(context))
-            .build()
-    }
-}
-
-#[cot::main]
-fn main() -> impl Project {
-    ArgonCentralProject
-}
+// TODO:
+// 1. rate limits for things, api keys get better limits defined in db

@@ -1,1 +1,6 @@
 max_width = 110
+use_small_heuristics = "Max"
+single_line_if_else_max_width = 60
+struct_lit_width = 15
+struct_variant_width = 20
+imports_granularity = "Crate"
