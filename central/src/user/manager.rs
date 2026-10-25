@@ -44,10 +44,23 @@ impl UserManager {
         let user = self.user_repository.get_user(account_id).await?;
 
         match user {
-            Some(user) if user.advanced_auth => self.generate_token_with_next_epoch(account_id, user).await,
+            Some(mut user) => {
+                // save updated user data to database (username, user id..)
+                let mut model = user.into_active_model();
+                model.username = Set(account_data.username.clone());
+                model.gd_user_id = Set(account_data.user_id as i64);
+                user = self.user_repository.update(model).await?;
+
+                if user.advanced_auth {
+                    self.generate_token_with_next_epoch(account_id, user).await
+                } else {
+                    // use simple auth
+                    Ok(self.generate_new_tokens(account_data, 0))
+                }
+            }
 
             _ => {
-                // user not in db or uses simple auth mode: just generate new refresh + access token pair
+                // user not in db, use simple auth
                 Ok(self.generate_new_tokens(account_data, 0))
             }
         }
@@ -69,7 +82,7 @@ impl UserManager {
 
         let mut model = user.into_active_model();
         model.token_epoch = Set(new_epoch as i64);
-        self.user_repository.save(model).await?;
+        self.user_repository.update(model).await?;
 
         // generate pair
         Ok(self.generate_new_tokens(&account_data, new_epoch))

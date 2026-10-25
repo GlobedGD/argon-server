@@ -18,7 +18,11 @@ impl UserRepository {
         User::find_by_id(account_id as i64).one(&self.db).await
     }
 
-    pub async fn save(&self, user: user::ActiveModel) -> Result<user::ActiveModel> {
-        user.save(&self.db).await
+    pub async fn update(&self, user: user::ActiveModel) -> Result<user::Model> {
+        user.update(&self.db).await
+    }
+
+    pub async fn save(&self, user: user::ActiveModel) -> Result<user::Model> {
+        user.insert(&self.db).await
     }
 }

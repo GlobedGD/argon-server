@@ -306,8 +306,8 @@ impl NodeWorker {
 
             let (id, secret) = if !legacy {
                 match extract_id_and_secret_from_text(&user_info.custom) {
-                    Some(ans) => ans,
-                    None => continue,
+                    Some(ans) if ans.0 == challenge.challenge_id => ans,
+                    _ => continue,
                 }
             } else {
                 // legacy is more tricky, since the client never sent the challenge ID in the response,
