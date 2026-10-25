@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
-use shared::{CONFIG_BASE_NAME, logging::LoggingConfig};
+use shared::{DOCKER_CONFIG_BASE_NAME, logging::LoggingConfig};
 use thiserror::Error;
 use validator::Validate;
 
@@ -28,7 +28,8 @@ pub enum ConfigError {
 impl NodeConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let cfg: NodeConfig = Config::builder()
-            .add_source(File::with_name(CONFIG_BASE_NAME).required(false))
+            .add_source(File::with_name(DOCKER_CONFIG_BASE_NAME).required(false))
+            .add_source(File::with_name("config.toml").required(false))
             .add_source(Environment::with_prefix("ARGON_NODE").separator("_").try_parsing(true))
             .build()?
             .try_deserialize()?;
