@@ -18,3 +18,4 @@ strum = { version = "0.28.0", features = ["derive"] }
 
 [features]
 client = ["qunet/client"]
+docker = []

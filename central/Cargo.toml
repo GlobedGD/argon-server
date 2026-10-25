@@ -29,3 +29,6 @@ strum = "0.28.0"
 log = "0.4.34"
 hex = "0.4.3"
 humantime-serde = "1.1.1"
+
+[features]
+docker = ["shared/docker"]

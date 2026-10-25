@@ -2,7 +2,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
-use shared::{logging::LoggingConfig, resource::ResourceType};
+use shared::{CONFIG_BASE_NAME, logging::LoggingConfig, resource::ResourceType};
 use thiserror::Error;
 use validator::Validate;
 
@@ -34,7 +34,7 @@ pub enum ConfigError {
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let cfg: AppConfig = Config::builder()
-            .add_source(File::with_name("config.toml").required(false))
+            .add_source(File::with_name(CONFIG_BASE_NAME).required(false))
             .add_source(Environment::with_prefix("ARGON").separator("_").try_parsing(true))
             .build()?
             .try_deserialize()?;

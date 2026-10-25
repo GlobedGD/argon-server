@@ -53,7 +53,7 @@ COPY node ./node
 COPY shared ./shared
 COPY central ./central
 COPY Cargo.toml ./
-RUN cargo zigbuild --release --target $(cat /target.txt)
+RUN cargo zigbuild --release --target $(cat /target.txt) --features docker
 
 ## debian runtime ##
 FROM debian:trixie-slim AS runtime-debian
