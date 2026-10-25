@@ -20,6 +20,7 @@ use crate::{
 pub struct LoginData {
     account_id: i32,
     supported_challenges: Vec<ChallengeType>,
+    requesting_mod: String,
 }
 
 #[derive(Serialize)]

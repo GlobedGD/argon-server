@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM debian:trixie-slim AS builder-tools
 
-ARG RUST_NIGHTLY_VERSION=nightly-2026-05-01
+ARG RUST_NIGHTLY_VERSION=nightly-2026-10-24
 ARG ZIG_VERSION=0.15.2
 
 ENV CARGO_HOME=/cargo \
@@ -61,8 +61,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder-glibc /app/target/*/release/argon-server /argon-server
-COPY --from=builder-glibc /app/target/*/release/argon-node /argon-node
+COPY --from=builder-glibc /app/target/*/release/central /argon-server
+COPY --from=builder-glibc /app/target/*/release/node /argon-node
 
 EXPOSE 4340/tcp
 
