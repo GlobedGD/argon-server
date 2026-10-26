@@ -12,6 +12,7 @@ pub struct Model {
     pub username: String,
     pub advanced_auth: bool,
     pub token_epoch: i64,
+    #[sea_orm(unique)]
     pub discord_id: Option<i64>,
 }
 

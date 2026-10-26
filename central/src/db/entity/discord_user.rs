@@ -11,6 +11,7 @@ pub struct Model {
     pub user_id: i64,
     pub username: String,
     pub avatar_url: String,
+    pub last_sync_time: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -28,11 +28,20 @@ impl MigrationTrait for Migration {
                     .col(integer_uniq("user_id"))
                     .col(string("username"))
                     .col(string("avatar_url"))
+                    .col(date_time("last_sync_time"))
                     .to_owned(),
             )
             .await?;
 
-        manager.create_index(Index::create().table("discord_user").col("user_id").to_owned()).await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_discord_user_user_id")
+                    .table("discord_user")
+                    .col("user_id")
+                    .to_owned(),
+            )
+            .await?;
 
         Ok(())
     }

@@ -30,6 +30,7 @@ log = "0.4.34"
 hex = "0.4.3"
 humantime-serde = "1.1.1"
 reqwest = { version = "0.13.5", features = ["form", "zstd", "json"] }
+chrono = "0.4.45"
 
 [features]
 docker = ["shared/docker"]

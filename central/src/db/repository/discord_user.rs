@@ -3,10 +3,14 @@ use crate::{
         Result,
         entity::{discord_user, prelude::*},
     },
+    discord::client::DiscordUserData,
     state::AppState,
 };
 use axum::extract::FromRef;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    sea_query::{Expr, Value},
+};
 
 #[derive(Clone)]
 pub struct DiscordUserRepository {
@@ -50,6 +54,22 @@ impl DiscordUserRepository {
             .await?;
 
         Ok(r.rows_affected > 0)
+    }
+
+    /// Syncs avatar URL, username and sets the last sync time for the user
+    pub async fn sync_details(&self, data: DiscordUserData) -> Result<()> {
+        DiscordUser::update_many()
+            .col_expr(discord_user::Column::AvatarUrl, Expr::value(Value::String(Some(data.avatar_url))))
+            .col_expr(discord_user::Column::Username, Expr::value(Value::String(Some(data.username))))
+            .col_expr(
+                discord_user::Column::LastSyncTime,
+                Expr::value(Value::ChronoDateTime(Some(chrono::Utc::now().naive_utc()))),
+            )
+            .filter(discord_user::Column::DiscordId.eq(data.account_id))
+            .exec(&self.db)
+            .await?;
+
+        Ok(())
     }
 }
 

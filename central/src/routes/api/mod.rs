@@ -28,7 +28,8 @@ pub fn router(config: &AppConfig) -> Router<AppState> {
         router = router
             .route("/account/discord", get(discord::get_link_state))
             .route("/account/discord/link", post(discord::link))
-            .route("/account/discord", delete(discord::unlink));
+            .route("/account/discord", delete(discord::unlink))
+            .route("/account/discord/sync", post(discord::sync));
     }
 
     router

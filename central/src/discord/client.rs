@@ -3,13 +3,19 @@ use std::time::{Duration, Instant};
 use dashmap::DashMap;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 
-use crate::{config::AppConfig, discord::error::Error};
+use crate::{config::AppConfig, db::entity::discord_user, discord::error::Error};
 
 type Result<T> = std::result::Result<T, Error>;
+
+pub enum OauthFlowType {
+    Link,
+    Sync,
+}
 
 struct LinkAttempt {
     account_id: i32,
     return_to: Option<String>,
+    flow_type: OauthFlowType,
     started_at: Instant,
 }
 
@@ -29,10 +35,40 @@ pub struct DiscordUserData {
     pub avatar_url: String,
 }
 
+#[derive(Serialize)]
+pub struct DiscordUserDataFull {
+    pub account_id: i64,
+    pub username: String,
+    pub avatar_url: String,
+    pub last_sync_time: chrono::NaiveDateTime,
+}
+
+impl From<discord_user::Model> for DiscordUserDataFull {
+    fn from(model: discord_user::Model) -> Self {
+        Self {
+            account_id: model.user_id,
+            username: model.username,
+            avatar_url: model.avatar_url,
+            last_sync_time: model.last_sync_time,
+        }
+    }
+}
+
+impl From<DiscordUserDataFull> for DiscordUserData {
+    fn from(full: DiscordUserDataFull) -> Self {
+        Self {
+            account_id: full.account_id,
+            username: full.username,
+            avatar_url: full.avatar_url,
+        }
+    }
+}
+
 pub struct SuccessfulOauthFlow {
     pub account_id: i32,
     pub access_token: String,
     pub return_to: Option<String>,
+    pub flow_type: OauthFlowType,
 }
 
 #[derive(Deserialize)]
@@ -60,7 +96,12 @@ impl DiscordClient {
         self.link_attempts.retain(|_, v| v.started_at.elapsed() < Duration::from_mins(5));
     }
 
-    pub fn begin_oauth_flow(&self, account_id: i32, return_to: Option<String>) -> String {
+    pub fn begin_oauth_flow(
+        &self,
+        account_id: i32,
+        flow_type: OauthFlowType,
+        return_to: Option<String>,
+    ) -> String {
         let secret: u64 = rand::random();
 
         self.link_attempts.insert(
@@ -68,6 +109,7 @@ impl DiscordClient {
             LinkAttempt {
                 account_id,
                 return_to,
+                flow_type,
                 started_at: Instant::now(),
             },
         );
@@ -93,6 +135,7 @@ impl DiscordClient {
             account_id,
             access_token: token,
             return_to: attempt.return_to,
+            flow_type: attempt.flow_type,
         })
     }
 

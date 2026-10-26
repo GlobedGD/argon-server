@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::Utc;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use shared::message::GDAccountData;
 
@@ -10,7 +11,7 @@ use crate::{
         repository::{DiscordUserRepository, UserRepository},
     },
     discord::{
-        client::{DiscordClient, DiscordUserData},
+        client::{DiscordClient, DiscordUserData, DiscordUserDataFull},
         error::Error as DiscordError,
     },
     routes::api::{ApiError, ApiResult},
@@ -173,18 +174,16 @@ impl UserManager {
     }
 
     pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {
+        Ok(self.get_discord_data_ext(account_id).await?.map(DiscordUserData::from))
+    }
+
+    pub async fn get_discord_data_ext(&self, account_id: i32) -> Result<Option<DiscordUserDataFull>> {
         if !self.discord_enabled() {
             return Ok(None);
         }
 
-        let user = self.discord_user_repository.get_by_user_id(account_id).await?;
-
-        Ok(user.map(|model| DiscordUserData {
-            account_id: model.discord_id,
-            username: model.username,
-
-            avatar_url: model.avatar_url,
-        }))
+        let model = self.discord_user_repository.get_by_user_id(account_id).await?;
+        Ok(model.map(Into::into))
     }
 
     /// Unlinks a user, returns whether the user was actually linked
@@ -226,9 +225,16 @@ impl UserManager {
             avatar_url: Set(data.avatar_url),
             user_id: Set(data.account_id),
             username: Set(data.username),
+            last_sync_time: Set(Utc::now().naive_utc()),
         };
         self.discord_user_repository.save(duser).await?;
 
+        Ok(())
+    }
+
+    /// Refreshes fields such as username and avatar URL in the given discord user
+    pub async fn sync_discord_account(&self, data: DiscordUserData) -> ApiResult<()> {
+        self.discord_user_repository.sync_details(data).await?;
         Ok(())
     }
 
