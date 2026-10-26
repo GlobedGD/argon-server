@@ -12,6 +12,7 @@ pub struct Model {
     pub username: String,
     pub advanced_auth: bool,
     pub token_epoch: i64,
+    pub discord_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

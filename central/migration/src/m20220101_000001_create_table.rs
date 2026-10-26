@@ -15,6 +15,7 @@ impl MigrationTrait for Migration {
                     .col(string("username"))
                     .col(boolean("advanced_auth"))
                     .col(integer("token_epoch"))
+                    .col(integer_null("discord_id"))
                     .to_owned(),
             )
             .await

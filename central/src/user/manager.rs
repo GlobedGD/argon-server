@@ -1,4 +1,5 @@
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
+use serde::Serialize;
 use shared::message::GDAccountData;
 
 use crate::{
@@ -17,6 +18,11 @@ pub struct RefreshedTokenPair {
     pub refresh_token_valid_until: u64,
     pub access_token: AccessToken,
     pub access_token_valid_until: u64,
+}
+
+#[derive(Serialize)]
+pub struct DiscordUserData {
+    account_id: i64,
 }
 
 impl UserManager {
@@ -141,5 +147,18 @@ impl UserManager {
         }
 
         Ok(claims)
+    }
+
+    pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {
+        let user = self.user_repository.get_user(account_id).await?;
+        let Some(discord_id) = user.and_then(|u| u.discord_id) else {
+            return Ok(None);
+        };
+
+        // TODO: fetch some data like avatar url, username
+
+        Ok(Some(DiscordUserData {
+            account_id: discord_id,
+        }))
     }
 }

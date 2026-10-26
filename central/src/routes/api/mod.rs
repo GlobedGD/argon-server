@@ -7,6 +7,7 @@ use crate::state::AppState;
 
 mod account;
 mod check;
+mod discord;
 mod error;
 mod status;
 
