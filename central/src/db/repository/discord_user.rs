@@ -6,7 +6,7 @@ use crate::{
     state::AppState,
 };
 use axum::extract::FromRef;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 #[derive(Clone)]
 pub struct DiscordUserRepository {
@@ -19,18 +19,18 @@ impl DiscordUserRepository {
     }
 
     pub async fn get_user(&self, id: i64) -> Result<Option<discord_user::Model>> {
-        DiscordUser::find_by_id(account_id).one(&self.db).await
+        DiscordUser::find_by_id(id).one(&self.db).await
     }
 
     pub async fn get_by_user_id(&self, id: i32) -> Result<Option<discord_user::Model>> {
         DiscordUser::find().filter(discord_user::Column::UserId.eq(id as i64)).one(&self.db).await
     }
 
-    pub async fn update(&self, user: user::ActiveModel) -> Result<user::Model> {
+    pub async fn update(&self, user: discord_user::ActiveModel) -> Result<discord_user::Model> {
         user.update(&self.db).await
     }
 
-    pub async fn save(&self, user: user::ActiveModel) -> Result<user::Model> {
+    pub async fn save(&self, user: discord_user::ActiveModel) -> Result<discord_user::Model> {
         user.insert(&self.db).await
     }
 

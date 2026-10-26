@@ -1,10 +1,9 @@
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use serde::{Deserialize, Deserializer, Serialize};
-use thiserror::Error;
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 
-use crate::{config::AppConfig, discord::error::Error, routes::api::ApiError};
+use crate::{config::AppConfig, discord::error::Error};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -41,8 +40,6 @@ struct ApiUserObject {
     #[serde(deserialize_with = "deserialize_i64_str")]
     id: i64,
     username: String,
-    discriminator: String,
-    global_name: Option<String>,
     avatar: Option<String>,
 }
 
@@ -60,7 +57,7 @@ impl DiscordClient {
     }
 
     pub fn run_cleanup(&self) {
-        self.link_attempts.retain(|k, v| v.started_at.elapsed() < Duration::from_mins(5));
+        self.link_attempts.retain(|_, v| v.started_at.elapsed() < Duration::from_mins(5));
     }
 
     pub fn begin_oauth_flow(&self, account_id: i32, return_to: Option<String>) -> String {
@@ -77,7 +74,7 @@ impl DiscordClient {
 
         format!(
             "https://discord.com/api/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope=identify&state={}-{}",
-            self.client_id, self.redirect_uri, gd_account, secret
+            self.client_id, self.redirect_uri, account_id, secret
         )
     }
 
@@ -110,19 +107,19 @@ impl DiscordClient {
             ("client_secret", self.client_secret.as_str()),
             ("grant_type", "authorization_code"),
             ("redirect_uri", self.redirect_uri.as_str()),
-            ("code", code.as_str()),
+            ("code", code),
         ];
 
-        let r = self.post_form::<Response>("oauth/token", &payload, None).await?;
+        let r = self.post_form::<Response, _>("oauth/token", &payload, None).await?;
         Ok(r.access_token)
     }
 
     pub async fn get_self_user(&self, access_token: &str) -> Result<DiscordUserData> {
-        let user = self.get::<ApiUserObject>(format!("users/{id}"), format!("Bearer {access_token}")).await?;
+        let user = self.get::<ApiUserObject>("users/@me", format!("Bearer {access_token}")).await?;
 
         Ok(DiscordUserData {
             account_id: user.id,
-            username,
+            username: user.username,
             avatar_url: self.avatar_url(user.id, user.avatar.as_deref()),
         })
     }
@@ -141,7 +138,7 @@ impl DiscordClient {
         format!("https://discord.com/api/v10/{}", suffix.as_ref())
     }
 
-    async fn get<T: Deserialize>(
+    async fn get<T: DeserializeOwned>(
         &self,
         suffix: impl AsRef<str>,
         auth: impl Into<Option<String>>,
@@ -155,10 +152,10 @@ impl DiscordClient {
         }
 
         let response = req.send().await?.error_for_status()?;
-        Ok(response.json()?)
+        Ok(response.json().await?)
     }
 
-    async fn post_form<T: Deserialize, S: Serialize>(
+    async fn post_form<T: DeserializeOwned, S: Serialize>(
         &self,
         suffix: impl AsRef<str>,
         body: &S,
@@ -173,7 +170,7 @@ impl DiscordClient {
         }
 
         let response = req.send().await?.error_for_status()?;
-        Ok(response.json()?)
+        Ok(response.json().await?)
     }
 }
 

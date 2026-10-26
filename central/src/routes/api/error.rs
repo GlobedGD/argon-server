@@ -18,10 +18,8 @@ pub enum Error {
     InvalidToken(#[from] TokenValidationError),
     #[error("Internal server error: {0}")]
     Internal(#[from] anyhow::Error),
-    #[error("Not linked to a Discord account")]
-    DiscordNotLinked,
-    #[error("Already linked to a Discord account")]
-    DiscordAlreadyLinked,
+    #[error("discord client error: {0}")]
+    Discord(#[from] crate::discord::error::Error),
 }
 
 impl Error {
@@ -32,8 +30,7 @@ impl Error {
             Error::MissingAuth => "missing_auth",
             Error::InvalidToken(e) => e.error_code(),
             Error::ChallengeStart(e) => e.error_code(),
-            Error::DiscordNotLinked => "discord_not_linked",
-            Error::DiscordAlreadyLinked => "discord_already_linked",
+            Error::Discord(e) => e.error_code(),
         }
     }
 
@@ -44,8 +41,7 @@ impl Error {
             Error::MissingAuth => StatusCode::UNAUTHORIZED,
             Error::InvalidToken(e) => e.status_code(),
             Error::ChallengeStart(e) => e.status_code(),
-            Error::DiscordNotLinked => StatusCode::NOT_FOUND,
-            Error::DiscordAlreadyLinked => StatusCode::BAD_REQUEST,
+            Error::Discord(e) => e.status_code(),
         }
     }
 }

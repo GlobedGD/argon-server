@@ -34,12 +34,12 @@ impl UserRepository {
     pub async fn upsert(
         &self,
         user: user::ActiveModel,
-        update_columns: &[user::Column],
+        update_columns: impl IntoIterator<Item = user::Column>,
     ) -> Result<user::Model> {
         let res = User::insert(user)
             .on_conflict(
                 OnConflict::columns([user::Column::Id, user::Column::DiscordId])
-                    .update_columns(update_columnss)
+                    .update_columns(update_columns)
                     .to_owned(),
             )
             .exec_with_returning(&self.db)

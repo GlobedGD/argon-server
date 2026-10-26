@@ -1,14 +1,17 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::{Query, State},
     response::Redirect,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    db::repository::DiscordUserRepository,
-    discord::client::{DiscordClient, SuccessfulOauthFlow},
+    discord::{
+        client::{DiscordClient, DiscordUserData, SuccessfulOauthFlow},
+        error::Error as DiscordError,
+    },
     routes::{
         api::{ApiError, ApiResult},
         util::{
@@ -16,7 +19,7 @@ use crate::{
             responders::{Either, NoCache},
         },
     },
-    user::{DiscordUserData, UserManager},
+    user::UserManager,
 };
 
 #[derive(Serialize)]
@@ -29,17 +32,17 @@ pub struct DiscordLinkStateResponse {
 pub async fn get_link_state(
     State(user_manager): State<Arc<UserManager>>,
     ExtractRefreshToken(claims): ExtractRefreshToken,
-) -> ApiResult<DiscordLinkStateResponse> {
+) -> ApiResult<Json<DiscordLinkStateResponse>> {
     let user = user_manager.get_discord_data(claims.account_id()).await?;
 
-    Ok(DiscordLinkStateResponse {
+    Ok(Json(DiscordLinkStateResponse {
         linked: user.is_some(),
         user,
-    })
+    }))
 }
 
 #[derive(Deserialize)]
-struct LinkQuery {
+pub struct LinkQuery {
     return_to: Option<String>,
 }
 
@@ -60,7 +63,7 @@ pub async fn unlink(
     if unlinked {
         Ok(())
     } else {
-        Err(ApiError::DiscordNotLinked)
+        Err(ApiError::Discord(DiscordError::DiscordNotLinked))
     }
 }
 

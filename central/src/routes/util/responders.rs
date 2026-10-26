@@ -41,8 +41,8 @@ impl<T: IntoResponse> IntoResponse for Cache<T> {
 }
 
 pub enum Either<T, Y> {
-    First(pub T),
-    Second(pub Y),
+    First(T),
+    Second(Y),
 }
 
 impl<T: IntoResponse, Y: IntoResponse> IntoResponse for Either<T, Y> {

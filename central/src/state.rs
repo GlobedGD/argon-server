@@ -4,13 +4,8 @@ use axum::extract::FromRef;
 use tokio::time::interval;
 
 use crate::{
-    challenge::ChallengeController,
-    config::AppConfig,
-    db::{Database, repository::UserRepository},
-    discord::client::DiscordClient,
-    node_manager::NodeManager,
-    token::TokenIssuer,
-    user::UserManager,
+    challenge::ChallengeController, config::AppConfig, db::Database, discord::client::DiscordClient,
+    node_manager::NodeManager, token::TokenIssuer, user::UserManager,
 };
 
 #[derive(Clone, FromRef)]

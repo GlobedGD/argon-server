@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
-use serde::Serialize;
 use shared::message::GDAccountData;
 
 use crate::{
@@ -10,7 +9,10 @@ use crate::{
         entity::{discord_user, user},
         repository::{DiscordUserRepository, UserRepository},
     },
-    discord::client::{DiscordClient, DiscordUserData},
+    discord::{
+        client::{DiscordClient, DiscordUserData},
+        error::Error as DiscordError,
+    },
     routes::api::{ApiError, ApiResult},
     token::{AccessToken, RefreshToken, TokenClaims, TokenIssuer},
     user::TokenValidationError,
@@ -213,13 +215,13 @@ impl UserManager {
         };
 
         if user.discord_id.is_set_and(|v| v.is_some()) {
-            return Err(ApiError::DiscordNotLinked);
+            return Err(ApiError::Discord(DiscordError::DiscordAlreadyLinked));
         }
 
         user.discord_id = Set(Some(data.account_id));
-        self.user_repository.upsert(user, &[user::Column::DiscordId]).await?;
+        self.user_repository.upsert(user, [user::Column::DiscordId]).await?;
 
-        let mut duser = discord_user::ActiveModel {
+        let duser = discord_user::ActiveModel {
             discord_id: Set(data.account_id),
             avatar_url: Set(data.avatar_url),
             user_id: Set(data.account_id),

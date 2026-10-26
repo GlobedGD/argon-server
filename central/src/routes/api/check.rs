@@ -4,7 +4,7 @@ use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use shared::message::GDAccountData;
 
-use crate::user::{DiscordUserData, UserManager};
+use crate::{discord::client::DiscordUserData, user::UserManager};
 
 use super::ApiResult;
 
