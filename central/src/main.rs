@@ -12,6 +12,7 @@ use crate::{config::AppConfig, state::AppState};
 pub mod challenge;
 pub mod config;
 pub mod db;
+pub mod discord;
 pub mod node_manager;
 mod routes;
 pub mod state;
@@ -32,7 +33,10 @@ async fn main() {
     let _guard = shared::logging::init(&config.logging);
     let state = AppState::new(&config).await;
 
-    let mut app = Router::new().nest("/v2/", routes::api::router());
+    let mut app = Router::new()
+        .nest("/v2/", routes::api::router(&config))
+        // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
+        .route("/oauth/discord/callback", routes::api::discord_oauth_callback());
 
     // enable legacy routes, if enabled in config
     if config.legacy.enabled {

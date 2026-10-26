@@ -1,6 +1,9 @@
 use sea_orm::ConnectOptions;
 
-use crate::{config::AppConfig, db::repository::UserRepository};
+use crate::{
+    config::AppConfig,
+    db::repository::{DiscordUserRepository, UserRepository},
+};
 use migration::{Migrator, MigratorTrait};
 
 pub mod entity;
@@ -8,6 +11,7 @@ pub mod repository;
 
 pub struct Database {
     pub user_repository: UserRepository,
+    pub discord_user_repository: DiscordUserRepository,
 }
 
 pub type Result<T> = std::result::Result<T, sea_orm::DbErr>;
@@ -24,6 +28,7 @@ impl Database {
 
         Ok(Self {
             user_repository: UserRepository::new(db.clone()),
+            discord_user_repository: DiscordUserRepository::new(db.clone()),    
         })
     }
 }

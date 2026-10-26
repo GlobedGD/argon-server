@@ -7,6 +7,7 @@ use crate::{
     challenge::ChallengeController,
     config::AppConfig,
     db::{Database, repository::UserRepository},
+    discord::client::DiscordClient,
     node_manager::NodeManager,
     token::TokenIssuer,
     user::UserManager,
@@ -20,9 +21,13 @@ pub struct AppState {
     pub user_manager: Arc<UserManager>,
 }
 
-impl FromRef<AppState> for UserRepository {
+impl FromRef<AppState> for Arc<DiscordClient> {
     fn from_ref(input: &AppState) -> Self {
-        input.database.user_repository.clone()
+        input
+            .user_manager
+            .discord_client()
+            .expect("endpoint tried using DiscordClient state when discord integration is disabled")
+            .clone()
     }
 }
 
@@ -32,7 +37,12 @@ impl AppState {
         let database = Arc::new(Database::new(config).await.expect("failed to create database connection"));
 
         let token_issuer = TokenIssuer::new(config);
-        let user_manager = Arc::new(UserManager::new(database.user_repository.clone(), token_issuer));
+        let discord_client = if config.discord.enabled {
+            Some(Arc::new(DiscordClient::new(config)))
+        } else {
+            None
+        };
+        let user_manager = Arc::new(UserManager::new(&database, discord_client.clone(), token_issuer));
 
         Self {
             challenge_controller: Arc::new(ChallengeController::new(config, node_manager.clone())),
@@ -47,13 +57,17 @@ impl AppState {
     }
 
     pub async fn run_maintenance_tasks(self) {
-        // let mut nm_cleanup = interval(Duration::from_mins(1));
+        let mut um_cleanup = interval(Duration::from_mins(5));
         let mut cc_cleanup = interval(Duration::from_mins(1));
 
         loop {
             tokio::select! {
                 _ = cc_cleanup.tick() => {
                     self.challenge_controller.run_cleanup();
+                }
+
+                _ = um_cleanup.tick() => {
+                    self.user_manager.run_cleanup();
                 }
             }
         }

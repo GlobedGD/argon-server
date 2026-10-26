@@ -1,15 +1,25 @@
+use std::sync::Arc;
+
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use serde::Serialize;
 use shared::message::GDAccountData;
 
 use crate::{
-    db::{Result, entity::user, repository::UserRepository},
+    db::{
+        Database, Result,
+        entity::{discord_user, user},
+        repository::{DiscordUserRepository, UserRepository},
+    },
+    discord::client::{DiscordClient, DiscordUserData},
+    routes::api::{ApiError, ApiResult},
     token::{AccessToken, RefreshToken, TokenClaims, TokenIssuer},
     user::TokenValidationError,
 };
 
 pub struct UserManager {
     user_repository: UserRepository,
+    discord_user_repository: DiscordUserRepository,
+    discord_client: Option<Arc<DiscordClient>>,
     token_issuer: TokenIssuer,
 }
 
@@ -20,21 +30,32 @@ pub struct RefreshedTokenPair {
     pub access_token_valid_until: u64,
 }
 
-#[derive(Serialize)]
-pub struct DiscordUserData {
-    account_id: i64,
-}
-
 impl UserManager {
-    pub fn new(user_repository: UserRepository, token_issuer: TokenIssuer) -> Self {
+    pub fn new(
+        database: &Database,
+        discord_client: Option<Arc<DiscordClient>>,
+        token_issuer: TokenIssuer,
+    ) -> Self {
         Self {
-            user_repository,
+            user_repository: database.user_repository.clone(),
+            discord_user_repository: database.discord_user_repository.clone(),
+            discord_client,
             token_issuer,
         }
     }
 
     pub fn token_issuer(&self) -> &TokenIssuer {
         &self.token_issuer
+    }
+
+    pub fn discord_client(&self) -> Option<&Arc<DiscordClient>> {
+        self.discord_client.as_ref()
+    }
+
+    pub fn run_cleanup(&self) {
+        if let Some(dc) = &self.discord_client {
+            dc.run_cleanup();
+        }
     }
 
     pub async fn on_challenge_completed(&self, account_data: &GDAccountData) -> Result<RefreshedTokenPair> {
@@ -150,15 +171,66 @@ impl UserManager {
     }
 
     pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {
-        let user = self.user_repository.get_user(account_id).await?;
-        let Some(discord_id) = user.and_then(|u| u.discord_id) else {
+        if !self.discord_enabled() {
             return Ok(None);
+        }
+
+        let user = self.discord_user_repository.get_by_user_id(account_id).await?;
+
+        Ok(user.map(|model| DiscordUserData {
+            account_id: model.discord_id,
+            username: model.username,
+
+            avatar_url: model.avatar_url,
+        }))
+    }
+
+    /// Unlinks a user, returns whether the user was actually linked
+    pub async fn unlink_discord_user(&self, account_id: i32) -> Result<bool> {
+        let Some(user) = self.user_repository.get_user(account_id).await? else {
+            return Ok(false);
         };
 
-        // TODO: fetch some data like avatar url, username
+        let Some(discord_id) = user.discord_id else {
+            return Ok(false);
+        };
 
-        Ok(Some(DiscordUserData {
-            account_id: discord_id,
-        }))
+        let mut model = user.into_active_model();
+        model.discord_id = Set(None);
+        self.user_repository.update(model).await?;
+        self.discord_user_repository.delete(discord_id).await?;
+
+        Ok(true)
+    }
+
+    pub async fn link_discord_account(&self, account_id: i32, data: DiscordUserData) -> ApiResult<()> {
+        let mut user = match self.user_repository.get_user(account_id).await? {
+            Some(user) => user.into_active_model(),
+            None => user::ActiveModel {
+                id: Set(account_id as i64),
+                ..Default::default()
+            },
+        };
+
+        if user.discord_id.is_set_and(|v| v.is_some()) {
+            return Err(ApiError::DiscordNotLinked);
+        }
+
+        user.discord_id = Set(Some(data.account_id));
+        self.user_repository.upsert(user, &[user::Column::DiscordId]).await?;
+
+        let mut duser = discord_user::ActiveModel {
+            discord_id: Set(data.account_id),
+            avatar_url: Set(data.avatar_url),
+            user_id: Set(data.account_id),
+            username: Set(data.username),
+        };
+        self.discord_user_repository.save(duser).await?;
+
+        Ok(())
+    }
+
+    fn discord_enabled(&self) -> bool {
+        self.discord_client.is_some()
     }
 }

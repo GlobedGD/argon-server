@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::ApiResult;
 use crate::{
     challenge::{ChallengeController, ChallengeData, ChallengeType},
-    routes::extractors::ExtractRefreshToken,
+    routes::util::extractors::ExtractRefreshToken,
     user::{RefreshedTokenPair, UserManager},
     util::ApiTime,
 };

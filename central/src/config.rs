@@ -20,6 +20,8 @@ pub struct AppConfig {
     pub auth: AuthConfig,
     #[serde(default)]
     pub legacy: LegacyConfig,
+    #[serde(default)]
+    pub discord: DiscordConfig,
 }
 
 #[derive(Debug, Error)]
@@ -184,4 +186,13 @@ impl Default for LegacyConfig {
 
 fn default_legacy_token_expiry() -> Duration {
     Duration::from_days(7)
+}
+
+#[derive(Default, Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct DiscordConfig {
+    pub enabled: bool,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
 }

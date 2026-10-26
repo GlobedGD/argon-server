@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::{Json, extract::State};
 use serde::Serialize;
 
-use crate::state::AppState;
+use crate::{routes::util::responders::Cache, state::AppState};
 
 use super::ApiResult;
 
@@ -21,7 +21,7 @@ pub struct StatusResponse {
     nodes: Vec<NodeInfo>,
 }
 
-pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusResponse>> {
+pub async fn status(State(state): State<AppState>) -> ApiResult<Cache<Json<StatusResponse>>> {
     let nodes = state
         .node_manager
         .get_nodes()
@@ -41,8 +41,11 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Json<StatusRespo
         "degraded"
     };
 
-    Ok(Json(StatusResponse {
-        status: status.to_owned(),
-        nodes,
-    }))
+    Ok(Cache::new(
+        Duration::from_secs(30),
+        Json(StatusResponse {
+            status: status.to_owned(),
+            nodes,
+        }),
+    ))
 }

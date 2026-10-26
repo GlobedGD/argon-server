@@ -1,7 +1,12 @@
-use crate::db::{
-    Result,
-    entity::{prelude::*, user},
+use crate::{
+    db::{
+        Result,
+        entity::{prelude::*, user},
+    },
+    state::AppState,
 };
+use axum::extract::FromRef;
+use migration::OnConflict;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait};
 
 #[derive(Clone)]
@@ -24,5 +29,28 @@ impl UserRepository {
 
     pub async fn save(&self, user: user::ActiveModel) -> Result<user::Model> {
         user.insert(&self.db).await
+    }
+
+    pub async fn upsert(
+        &self,
+        user: user::ActiveModel,
+        update_columns: &[user::Column],
+    ) -> Result<user::Model> {
+        let res = User::insert(user)
+            .on_conflict(
+                OnConflict::columns([user::Column::Id, user::Column::DiscordId])
+                    .update_columns(update_columnss)
+                    .to_owned(),
+            )
+            .exec_with_returning(&self.db)
+            .await?;
+
+        Ok(res)
+    }
+}
+
+impl FromRef<AppState> for UserRepository {
+    fn from_ref(input: &AppState) -> Self {
+        input.database.user_repository.clone()
     }
 }
