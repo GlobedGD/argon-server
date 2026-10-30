@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block title %}Edit key{% endblock %}
+{% block content %}
+
+{% include "_flash.html" %}
+
+<nav aria-label="breadcrumb">
+    <ul>
+        <li><a href="/dashboard/admin">Developers</a></li>
+        <li><a href="/dashboard/admin/developers/{{ developer.id }}">{{ developer.username }}</a></li>
+        <li>{{ key.name }}</li>
+    </ul>
+</nav>
+
+<header class="page-header">
+    <h1>Edit API key</h1>
+    <p><small>Key #{{ key.id }} for {{ developer.username }}</small></p>
+</header>
+
+<article>
+    <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label>Name
+            <input type="text" name="name" value="{{ key.name }}" required maxlength="64">
+        </label>
+
+        <label>Description
+            <input type="text" name="description" value="{{ key.description }}" maxlength="255">
+        </label>
+
+        <div class="grid">
+            <label>Requests
+                <input type="number" name="requests" min="1" value="1000" required>
+            </label>
+
+            <label>Per
+                <select name="period">
+                    <option value="second">second</option>
+                    <option value="minute">minute</option>
+                    <option value="hour">hour</option>
+                    <option value="day">day</option>
+                </select>
+            </label>
+
+            <p class="note">(currently: {{ key.rate_limit_summary() }})</p>
+        </div>
+
+        <button type="submit">Save changes</button>
+    </form>
+</article>
+
+<article>
+    <header><strong>Danger zone</strong></header>
+    <div class="row-actions">
+        <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
+            data-confirm="Rotate this key? The old secret stops working immediately.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="secondary outline" type="submit">Rotate secret</button>
+        </form>
+
+        <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/delete"
+            data-confirm="Delete this API key? This cannot be undone.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="danger outline" type="submit">Delete key</button>
+        </form>
+    </div>
+</article>
+
+{% endblock %}

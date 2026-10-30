@@ -4,7 +4,7 @@ use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use shared::message::GDAccountData;
 
-use crate::{discord::client::DiscordUserData, user::UserManager};
+use crate::{discord::client::DiscordUserData, routes::util::extractors::ApiKeyRateLimit, user::UserManager};
 
 use super::ApiResult;
 
@@ -25,6 +25,7 @@ pub struct CheckResponse {
 
 pub async fn check(
     State(user_manager): State<Arc<UserManager>>,
+    ApiKeyRateLimit: ApiKeyRateLimit,
     Json(body): Json<CheckData>,
 ) -> ApiResult<Json<CheckResponse>> {
     let account_data = match user_manager.validate_access_token(&body.token).await {

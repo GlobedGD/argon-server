@@ -14,8 +14,6 @@ use crate::{
     util::ApiTime,
 };
 
-/// Start authenticating a GD user and return a challenge
-
 #[derive(Deserialize)]
 pub struct LoginData {
     account_id: i32,
@@ -65,7 +63,7 @@ impl From<RefreshedTokenPair> for SuccessfulLoginResponse {
 /// 2. Advanced security -> invalidates all other refresh tokens by incrementing epoch, then refreshes both tokens
 pub async fn refresh(
     State(user_manager): State<Arc<UserManager>>,
-    ExtractRefreshToken(claims): ExtractRefreshToken,
+    ExtractRefreshToken { claims }: ExtractRefreshToken,
 ) -> ApiResult<Json<SuccessfulLoginResponse>> {
     let pair = user_manager.generate_new_token_pair(&claims.account_data()).await?;
     Ok(Json(pair.into()))

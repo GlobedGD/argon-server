@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<article class="login-card">
+    <h1>Log in</h1>
+    <form method="POST" action="/dashboard/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" value="{{ username }}" required>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+
+        {% if let Some(error) = error %}
+        <p class="form-error" role="alert">{{ error }}</p>
+        {% endif %}
+
+        <button type="submit">Log in</button>
+    </form>
+</article>
+{% endblock %}

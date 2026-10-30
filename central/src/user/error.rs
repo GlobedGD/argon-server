@@ -1,12 +1,12 @@
 use axum::http::StatusCode;
 use thiserror::Error;
 
+use crate::token::Scope;
+
 #[derive(Debug, Error)]
 pub enum TokenValidationError {
-    #[error("token is not a refresh token")]
-    NotRefreshToken,
-    #[error("token is not an access/legacy token")]
-    NotAccessOrLegacyToken,
+    #[error("token is missing a scope: {0}")]
+    MissingScope(Scope),
     #[error("refresh token has expired due to epoch mismatch")]
     RefreshTokenExpired,
     #[error("legacy token is disallowed because the user has advanced auth enabled")]
@@ -27,8 +27,7 @@ impl TokenValidationError {
 
     pub fn error_code(&self) -> &'static str {
         match self {
-            Self::NotRefreshToken => "not_refresh_token",
-            Self::NotAccessOrLegacyToken => "not_access_token",
+            Self::MissingScope(_) => "missing_scope",
             Self::RefreshTokenExpired => "refresh_token_expired",
             Self::LegacyTokenNotAllowed => "legacy_token_not_allowed",
             Self::InvalidToken(_) => "invalid_token",
@@ -39,8 +38,7 @@ impl TokenValidationError {
     pub fn is_token_issue(&self) -> bool {
         matches!(
             self,
-            Self::NotRefreshToken
-                | Self::NotAccessOrLegacyToken
+            Self::MissingScope(_)
                 | Self::RefreshTokenExpired
                 | Self::LegacyTokenNotAllowed
                 | Self::InvalidToken(_)

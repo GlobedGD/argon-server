@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block title %}{{ developer.username }}{% endblock %}
+{% block content %}
+
+{% include "_flash.html" %}
+
+<nav aria-label="breadcrumb">
+    <ul>
+        <li><a href="/dashboard/admin">Developers</a></li>
+        <li>{{ developer.username }}</li>
+    </ul>
+</nav>
+
+<header class="page-header">
+    <h1>{{ developer.username }}</h1>
+    <p>
+        <small>
+            ID {{ developer.id }}
+            {% if developer.is_admin %}<mark>admin</mark>{% endif %}
+        </small>
+    </p>
+</header>
+
+<article>
+    <header>
+        <strong>API keys</strong>
+    </header>
+
+    {% if keys.is_empty() %}
+    <p>No API keys found.</p>
+    {% else %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th class="hide-sm">Rate limit</th>
+                    <th class="hide-sm">Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key in keys %}
+                <tr>
+                    <td>
+                        <a href="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
+                            {{ key.name }}
+                        </a>
+                        {% if !key.description.is_empty() %}
+                        <br><small>{{ key.description }}</small>
+                        {% endif %}
+                    </td>
+                    <td class="hide-sm">{{ key.rate_limit_summary() }}</td>
+                    <td class="hide-sm">{{ key.created_at_str() }}</td>
+                    <td>
+                        <div class="row-actions">
+                            <a role="button" class="secondary outline"
+                                href="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">Edit</a>
+                            <form method="POST"
+                                action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
+                                data-confirm="Rotate this key?">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button class="secondary outline" type="submit">Rotate</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <details>
+        <summary>Create API key</summary>
+        <form method="POST" action="/dashboard/admin/developers/{{ developer.id }}/keys">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Name
+                <input type="text" name="name" required maxlength="64" placeholder="Cool mod server">
+            </label>
+            <label>Description <input type="text" name="description" maxlength="256" placeholder="Optional description">
+            </label>
+
+            <div class="grid">
+                <label>Requests
+                    <input type="number" name="requests" min="1" value="1000" required>
+                </label>
+                <label>Per
+                    <select name="period">
+                        <option value="second">second</option>
+                        <option value="minute">minute</option>
+                        <option value="hour">hour</option>
+                        <option value="day">day</option>
+                    </select>
+                </label>
+            </div>
+
+            <button type="submit">Create key</button>
+        </form>
+    </details>
+</article>
+
+{% endblock %}

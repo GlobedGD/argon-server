@@ -16,11 +16,14 @@ pub type ApiResult<T> = Result<T, ApiError>;
 
 pub fn router(config: &AppConfig) -> Router<AppState> {
     let mut router = Router::new()
+        // account
         .route("/account/login", post(account::login))
         .route("/account/login/verify", post(account::verify))
         .route("/account/verify", post(account::verify)) // TODO: remove this on release
         .route("/account/refresh", post(account::refresh))
+        // tokan validation
         .route("/token/validate", post(check::check))
+        // misc
         .route("/status", get(status::status));
 
     // conditionally enable discord endpoints

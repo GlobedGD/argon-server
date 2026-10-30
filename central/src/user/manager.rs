@@ -15,7 +15,7 @@ use crate::{
         error::Error as DiscordError,
     },
     routes::api::{ApiError, ApiResult},
-    token::{AccessToken, RefreshToken, TokenClaims, TokenIssuer},
+    token::{AccessToken, RefreshToken, Scope, TokenClaims, TokenIssuer},
     user::TokenValidationError,
 };
 
@@ -74,15 +74,9 @@ impl UserManager {
         let user = self.user_repository.get_user(account_id).await?;
 
         match user {
-            Some(mut user) => {
-                // save updated user data to database (username, user id..)
-                let mut model = user.into_active_model();
-                model.username = Set(account_data.username.clone());
-                model.gd_user_id = Set(account_data.user_id as i64);
-                user = self.user_repository.update(model).await?;
-
+            Some(user) => {
                 if user.advanced_auth {
-                    self.generate_token_with_next_epoch(account_id, user).await
+                    self.generate_token_with_next_epoch(user, account_data).await
                 } else {
                     // use simple auth
                     Ok(self.generate_new_tokens(account_data, 0))
@@ -99,23 +93,22 @@ impl UserManager {
     /// called for advanced auth
     async fn generate_token_with_next_epoch(
         &self,
-        account_id: i32,
         user: user::Model,
+        account_data: &GDAccountData,
     ) -> Result<RefreshedTokenPair> {
-        // increment the epoch and save to database
+        // increment the epoch
         let new_epoch = user.token_epoch as u32 + 1;
-        let account_data = GDAccountData {
-            account_id,
-            user_id: user.gd_user_id as i32,
-            username: user.username.clone(),
-        };
 
+        // set the epoch and other fields and save to database
         let mut model = user.into_active_model();
         model.token_epoch = Set(new_epoch as i64);
+        model.gd_user_id = Set(Some(account_data.user_id as i64));
+        model.username = Set(Some(account_data.username.clone()));
+
         self.user_repository.update(model).await?;
 
         // generate pair
-        Ok(self.generate_new_tokens(&account_data, new_epoch))
+        Ok(self.generate_new_tokens(account_data, new_epoch))
     }
 
     fn generate_new_tokens(&self, account_data: &GDAccountData, epoch: u32) -> RefreshedTokenPair {
@@ -134,20 +127,7 @@ impl UserManager {
         &self,
         token: &str,
     ) -> std::result::Result<TokenClaims, TokenValidationError> {
-        let claims = self.token_issuer.validate_token(token)?;
-        if claims.scope != "refresh" {
-            return Err(TokenValidationError::NotRefreshToken);
-        }
-
-        // check the epoch
-        if let Some(user) = self.user_repository.get_user(claims.account_id()).await?
-            && user.advanced_auth
-            && user.token_epoch as u32 != claims.epoch
-        {
-            return Err(TokenValidationError::RefreshTokenExpired);
-        }
-
-        Ok(claims)
+        self.validate_token(token, Scope::Refresh).await
     }
 
     /// Validates that the token either is a v2 access token or a v1 legacy token.
@@ -157,17 +137,32 @@ impl UserManager {
         &self,
         token: &str,
     ) -> std::result::Result<TokenClaims, TokenValidationError> {
-        let claims = self.token_issuer.validate_token(token)?;
-        if claims.scope == "access" {
-            return Ok(claims);
-        } else if claims.scope != "legacy" {
-            return Err(TokenValidationError::NotAccessOrLegacyToken);
-        }
+        self.validate_token(token, Scope::Access).await
+    }
 
-        let user = self.user_repository.get_user(claims.account_id()).await?;
-        if user.is_some_and(|u| u.advanced_auth) {
-            // we cannot grant this token access, legacy tokens are unsafe when advanced auth is enabled
-            return Err(TokenValidationError::LegacyTokenNotAllowed);
+    pub async fn validate_token(
+        &self,
+        token: &str,
+        scope: Scope,
+    ) -> std::result::Result<TokenClaims, TokenValidationError> {
+        let claims = self.token_issuer.validate_token(token)?;
+        claims.must_scope(scope)?;
+
+        // check the epoch if this is a refresh token
+        if claims.has_scope(Scope::Refresh)
+            && let Some(user) = self.user_repository.get_user(claims.account_id()).await?
+            && user.advanced_auth
+            && user.token_epoch as u32 != claims.epoch()
+        {
+            return Err(TokenValidationError::RefreshTokenExpired);
+        }
+        // check if it's a legacy token
+        else if claims.has_scope(Scope::Legacy) {
+            let user = self.user_repository.get_user(claims.account_id()).await?;
+            if user.is_some_and(|u| u.advanced_auth) {
+                // we cannot grant this token access, legacy tokens are unsafe when advanced auth is enabled
+                return Err(TokenValidationError::LegacyTokenNotAllowed);
+            }
         }
 
         Ok(claims)

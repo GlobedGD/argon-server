@@ -4,8 +4,8 @@ use axum::extract::FromRef;
 use tokio::time::interval;
 
 use crate::{
-    challenge::ChallengeController, config::AppConfig, db::Database, discord::client::DiscordClient,
-    node_manager::NodeManager, token::TokenIssuer, user::UserManager,
+    challenge::ChallengeController, config::AppConfig, db::Database, developer::DeveloperManager,
+    discord::client::DiscordClient, node_manager::NodeManager, token::TokenIssuer, user::UserManager,
 };
 
 #[derive(Clone, FromRef)]
@@ -14,6 +14,7 @@ pub struct AppState {
     pub node_manager: Arc<NodeManager>,
     pub database: Arc<Database>,
     pub user_manager: Arc<UserManager>,
+    pub developer_manager: Arc<DeveloperManager>,
 }
 
 impl FromRef<AppState> for Arc<DiscordClient> {
@@ -38,12 +39,14 @@ impl AppState {
             None
         };
         let user_manager = Arc::new(UserManager::new(&database, discord_client.clone(), token_issuer));
+        let developer_manager = Arc::new(DeveloperManager::new(&database, config));
 
         Self {
             challenge_controller: Arc::new(ChallengeController::new(config, node_manager.clone())),
             node_manager,
             database,
             user_manager,
+            developer_manager,
         }
     }
 
@@ -54,6 +57,7 @@ impl AppState {
     pub async fn run_maintenance_tasks(self) {
         let mut um_cleanup = interval(Duration::from_mins(5));
         let mut cc_cleanup = interval(Duration::from_mins(1));
+        let mut dm_cleanup = interval(Duration::from_mins(15));
 
         loop {
             tokio::select! {
@@ -63,6 +67,10 @@ impl AppState {
 
                 _ = um_cleanup.tick() => {
                     self.user_manager.run_cleanup();
+                }
+
+                _ = dm_cleanup.tick() => {
+                    self.developer_manager.run_cleanup().await;
                 }
             }
         }

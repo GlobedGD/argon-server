@@ -1,0 +1,61 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+
+use crate::db::entity::{dev_account, dev_api_key};
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Developer {
+    pub id: i64,
+    pub username: String,
+    pub setup_complete: bool,
+    pub is_admin: bool,
+}
+
+impl From<dev_account::Model> for Developer {
+    fn from(model: dev_account::Model) -> Self {
+        Self {
+            id: model.id,
+            username: model.username,
+            setup_complete: model.setup_complete,
+            is_admin: model.is_admin,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct DevApiKey {
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub created_at: DateTime<Utc>,
+    pub request_reload_ms: u64,
+    pub owner: i64,
+}
+
+impl DevApiKey {
+    pub fn rate_limit_summary(&self) -> String {
+        let per_second = 1000.0 / self.request_reload_ms as f64;
+        format!("{:.1} requests per second", per_second)
+    }
+
+    pub fn created_at_str(&self) -> String {
+        self.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+    }
+
+    pub fn from_model(model: dev_api_key::Model) -> Self {
+        Self {
+            id: model.id,
+            name: model.name,
+            description: model.description,
+            created_at: model.created_at.and_utc(),
+            request_reload_ms: model.request_reload_ms as u64,
+            owner: model.owner,
+        }
+    }
+}
+
+impl From<dev_api_key::Model> for DevApiKey {
+    fn from(model: dev_api_key::Model) -> Self {
+        Self::from_model(model)
+    }
+}

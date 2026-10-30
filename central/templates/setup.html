@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block title %}Set a new password{% endblock %}
+{% block content %}
+
+{% if let Some(flash) = flash %}
+<div class="toast {{ flash.kind.class() }}" role="{{ flash.kind.role() }}">{{ flash.message }}</div>
+{% endif %}
+
+<article class="login-card">
+    <h1>Set a new password</h1>
+    <form method="POST" action="/dashboard/setup">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+
+        <button type="submit">Submit</button>
+    </form>
+</article>
+{% endblock %}

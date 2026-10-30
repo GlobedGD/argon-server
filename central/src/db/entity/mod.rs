@@ -2,5 +2,8 @@
 
 pub mod prelude;
 
+pub mod dev_account;
+pub mod dev_api_key;
+pub mod dev_session;
 pub mod discord_user;
 pub mod user;

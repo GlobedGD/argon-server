@@ -22,6 +22,10 @@ pub struct AppConfig {
     pub legacy: LegacyConfig,
     #[serde(default)]
     pub discord: DiscordConfig,
+    #[serde(default)]
+    pub developers: DevelopersConfig,
+    #[serde(default)]
+    pub web: WebConfig,
 }
 
 #[derive(Debug, Error)]
@@ -195,4 +199,63 @@ pub struct DiscordConfig {
     pub client_id: String,
     pub client_secret: String,
     pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct DevelopersConfig {
+    #[serde(default = "default_request_rate_limit")]
+    pub request_rate_limit: u32,
+    #[serde(with = "humantime_serde", default = "default_request_rate_limit_period")]
+    pub request_rate_limit_period: Duration,
+    #[serde(default = "default_request_max_burst")]
+    pub request_max_burst: u32,
+}
+
+impl Default for DevelopersConfig {
+    fn default() -> Self {
+        Self {
+            request_rate_limit: default_request_rate_limit(),
+            request_rate_limit_period: default_request_rate_limit_period(),
+            request_max_burst: default_request_max_burst(),
+        }
+    }
+}
+
+fn default_request_rate_limit() -> u32 {
+    10
+}
+
+fn default_request_rate_limit_period() -> Duration {
+    Duration::from_secs(1)
+}
+
+fn default_request_max_burst() -> u32 {
+    10
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebConfig {
+    #[serde(default = "default_session_expiry", with = "humantime_serde")]
+    pub session_expiry: Duration,
+    #[serde(default = "default_assets_dir")]
+    pub assets_dir: PathBuf,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            session_expiry: default_session_expiry(),
+            assets_dir: default_assets_dir(),
+        }
+    }
+}
+
+fn default_session_expiry() -> Duration {
+    Duration::from_days(7)
+}
+
+fn default_assets_dir() -> PathBuf {
+    PathBuf::from("assets/")
 }

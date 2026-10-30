@@ -1,0 +1,122 @@
+:root {
+    --ok: #1a7f37;
+    --err: #cf222e;
+}
+
+main.container {
+    max-width: 70rem;
+    padding-block: 2rem;
+}
+
+header nav {
+    --pico-nav-element-spacing-vertical: .25rem;
+    --pico-nav-link-spacing-vertical: .25rem;
+    --pico-form-element-spacing-vertical: .25rem;
+    --pico-form-element-spacing-horizontal: .75rem;
+    --pico-nav-element-spacing-horizontal: .25rem
+}
+
+header nav .nav-btn {
+    width: auto;
+    margin: 0;
+    margin-bottom: 0;
+    padding: .25rem .75rem;
+    line-height: 1.2;
+}
+
+header nav form {
+    margin: 0;
+}
+
+.login-card {
+    max-width: 26rem;
+    margin: 3rem auto;
+}
+
+.form-error {
+    color: var(--err);
+    font-size: 1.1rem;
+    margin-block: .8rem 0;
+    margin-bottom: 1.5rem;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.toast {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 10;
+    padding: .75rem 1rem;
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-background-color);
+    border: 1px solid var(--pico-muted-border-color);
+    box-shadow: 0 4px 12px rgb(0 0 0 / .12);
+}
+
+.toast.success {
+    border-color: var(--ok);
+}
+
+.toast.error {
+    border-color: var(--err);
+}
+
+
+/*  table stuff  */
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+.row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+}
+
+.row-actions form {
+    margin: 0;
+}
+
+.row-actions button,
+.row-actions a[role="button"] {
+    width: auto;
+    margin: 0;
+}
+
+.page-header {
+    margin-bottom: 1.5rem;
+}
+
+.page-header p {
+    margin: 0;
+}
+
+.secret-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+}
+
+.secret-row code {
+    flex: 1 1 20rem;
+    overflow-wrap: anywhere;
+    padding: .5rem;
+}
+
+button.danger {
+    color: var(--err);
+    border-color: var(--err);
+    background: transparent;
+}
+
+@media (max-width: 48rem) {
+    .hide-sm {
+        display: none;
+    }
+}

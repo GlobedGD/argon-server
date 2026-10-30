@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+
+{% include "_flash.html" %}
+
+<header class="page-header">
+    <h1>Developers</h1>
+    <p><small>{{ developers.len() }} total</small></p>
+</header>
+
+<article>
+    <!-- form to create a new developer -->
+    <header><strong>Create developer</strong></header>
+    <form method="POST" action="/dashboard/admin/developers">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid">
+
+            <label>
+                <input type="text" id="username" name="username" placeholder="Username" minlength="3" maxlength="64"
+                    autocomplete="off" required>
+            </label>
+
+            <button type="submit">Create</button>
+        </div>
+    </form>
+</article>
+
+<article>
+    <header><strong>All developers</strong></header>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th class="hide-sm">Setup</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dev in developers %}
+                <tr>
+                    <td>{{ dev.id }}</td>
+                    <td>
+                        <a href="/dashboard/admin/developers/{{ dev.id }}">{{ dev.username }}</a>
+                    </td>
+                    <td>{% if dev.is_admin %}<mark>admin</mark>{% else %}developer{% endif %}</td>
+                    <td class="hide-sm">
+                        {% if dev.setup_complete %}complete{% else %}pending{% endif %}
+                    </td>
+                    <td>
+                        <div class="row-actions">
+                            <form method="POST" action="/dashboard/admin/developers/{{ dev.id }}/reset"
+                                data-confirm="Reset password for {{ dev.username }}?">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button class="secondary outline" type="submit">Reset password</button>
+                            </form>
+
+                            <form method="POST" action="/dashboard/admin/developers/{{ dev.id }}/delete"
+                                data-confirm="Delete {{ dev.username }}?">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <button class="danger outline" type="submit">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+{% endblock %}

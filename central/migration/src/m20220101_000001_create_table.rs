@@ -11,8 +11,8 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table("user")
                     .col(integer_uniq("id").primary_key())
-                    .col(integer_uniq("gd_user_id"))
-                    .col(string("username"))
+                    .col(integer_null("gd_user_id"))
+                    .col(string_null("username"))
                     .col(boolean("advanced_auth"))
                     .col(integer("token_epoch"))
                     .col(integer_null("discord_id").unique_key())
@@ -49,6 +49,7 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager.drop_table(Table::drop().table("user").to_owned()).await?;
         manager.drop_table(Table::drop().table("discord_user").to_owned()).await?;
+        manager.drop_index(Index::drop().name("idx_discord_user_user_id").to_owned()).await?;
 
         Ok(())
     }

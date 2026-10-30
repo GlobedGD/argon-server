@@ -15,7 +15,7 @@ use crate::{
     routes::{
         api::{ApiError, ApiResult},
         util::{
-            extractors::ExtractRefreshToken,
+            extractors::{ExtractAccManagementToken, ExtractAccessToken},
             responders::{Either, NoCache},
         },
     },
@@ -31,7 +31,7 @@ pub struct DiscordLinkStateResponse {
 
 pub async fn get_link_state(
     State(user_manager): State<Arc<UserManager>>,
-    ExtractRefreshToken(claims): ExtractRefreshToken,
+    ExtractAccessToken { claims }: ExtractAccessToken,
 ) -> ApiResult<Json<DiscordLinkStateResponse>> {
     let user = user_manager.get_discord_data_ext(claims.account_id()).await?;
 
@@ -48,7 +48,7 @@ pub struct LinkQuery {
 
 pub async fn link(
     State(discord_client): State<Arc<DiscordClient>>,
-    ExtractRefreshToken(claims): ExtractRefreshToken,
+    ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
 ) -> NoCache<Redirect> {
     let redirect_url =
@@ -58,7 +58,7 @@ pub async fn link(
 
 pub async fn sync(
     State(discord_client): State<Arc<DiscordClient>>,
-    ExtractRefreshToken(claims): ExtractRefreshToken,
+    ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
 ) -> NoCache<Redirect> {
     let redirect_url =
@@ -68,7 +68,7 @@ pub async fn sync(
 
 pub async fn unlink(
     State(user_manager): State<Arc<UserManager>>,
-    ExtractRefreshToken(claims): ExtractRefreshToken,
+    ExtractAccManagementToken { claims }: ExtractAccManagementToken,
 ) -> ApiResult<()> {
     let unlinked = user_manager.unlink_discord_user(claims.account_id()).await?;
     if unlinked {

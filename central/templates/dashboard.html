@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+{% include "_flash.html" %}
+
+<header class="page-header">
+    <h1>Hi, {{ me.username }}</h1>
+</header>
+
+<article>
+    <header>
+        <strong>Your API keys</strong>
+    </header>
+
+    {% if keys.is_empty() %}
+    <p>No API keys found</p>
+    {% else %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th class="hide-sm">Rate limit</th>
+                    <th class="hide-sm">Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key in keys %}
+                <tr>
+                    <td>
+                        {{ key.name }}
+                        {% if !key.description.is_empty() %}
+                        <br><small>{{ key.description }}</small>
+                        {% endif %}
+                    </td>
+                    <td class="hide-sm">{{ key.rate_limit_summary() }}</td>
+                    <td class="hide-sm">{{ key.created_at_str() }}</td>
+                    <td>
+                        <form method="POST" action="/dashboard/keys/{{ key.id }}/rotate"
+                            data-confirm="Rotate this key?">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="secondary outline" type="submit">Rotate</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</article>
+
+{% endblock %}

@@ -5,7 +5,7 @@ use shared::message::GDAccountData;
 
 use crate::{
     config::AppConfig,
-    token::{AccessToken, RefreshToken, TokenClaims},
+    token::{AccessToken, RefreshToken, Scope, TokenBuilder, TokenClaims},
 };
 
 pub struct TokenIssuer {
@@ -29,28 +29,40 @@ impl TokenIssuer {
     }
 
     pub fn generate_refresh_token(&self, account_data: &GDAccountData, epoch: u32) -> (RefreshToken, u64) {
-        let (token, exp) = self.generate_jwt(account_data, epoch, "refresh", self.refresh_expiry);
+        let claims = TokenBuilder::new()
+            .account_data(account_data)
+            .epoch(epoch)
+            .scopes([Scope::Refresh, Scope::Access, Scope::AccountManagement])
+            .expiry(self.refresh_expiry)
+            .build();
+
+        let (token, exp) = self.generate_jwt(claims);
         (RefreshToken(token), exp)
     }
 
     pub fn generate_access_token(&self, account_data: &GDAccountData) -> (AccessToken, u64) {
-        let (token, exp) = self.generate_jwt(account_data, 0, "access", self.access_expiry);
+        let claims = TokenBuilder::new()
+            .account_data(account_data)
+            .scope(Scope::Access)
+            .expiry(self.access_expiry)
+            .build();
+
+        let (token, exp) = self.generate_jwt(claims);
         (AccessToken(token), exp)
     }
 
     pub fn generate_legacy_token(&self, account_data: &GDAccountData) -> String {
-        let (token, _) = self.generate_jwt(account_data, 0, "legacy", self.legacy_expiry);
+        let claims = TokenBuilder::new()
+            .account_data(account_data)
+            .scopes([Scope::Legacy, Scope::Access])
+            .expiry(self.legacy_expiry)
+            .build();
+
+        let (token, _) = self.generate_jwt(claims);
         token
     }
 
-    fn generate_jwt(
-        &self,
-        account_data: &GDAccountData,
-        epoch: u32,
-        scope: &str,
-        expires_in: Duration,
-    ) -> (String, u64) {
-        let claims = TokenClaims::new_expires_in(account_data, epoch, scope.to_owned(), expires_in);
+    fn generate_jwt(&self, claims: TokenClaims) -> (String, u64) {
         let token = jsonwebtoken::encode(&Header::default(), &claims, &self.key).unwrap();
         (token, claims.exp)
     }
