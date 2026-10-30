@@ -24,7 +24,7 @@ use crate::{
 };
 
 #[derive(Template)]
-#[template(path = "dashboard.html")]
+#[template(path = "dashboard/index.html")]
 pub struct DashboardTemplate {
     me: Developer,
     csrf_token: String,
@@ -52,7 +52,7 @@ pub async fn get_dashboard(
 }
 
 #[derive(Template)]
-#[template(path = "setup.html")]
+#[template(path = "dashboard/setup.html")]
 pub struct SetupTemplate {
     me: Developer,
     csrf_token: String,
@@ -106,7 +106,7 @@ fn password_setup_err_msg(e: &DevError) -> Flash {
 }
 
 #[derive(Template, Default)]
-#[template(path = "login.html")]
+#[template(path = "dashboard/login.html")]
 pub struct LoginTemplate {
     csrf_token: String,
     username: String,
@@ -207,7 +207,7 @@ pub async fn post_logout(session: Session, Form(data): Form<LogoutData>) -> WebR
 }
 
 #[derive(Template)]
-#[template(path = "change_password.html")]
+#[template(path = "dashboard/change_password.html")]
 pub struct ChangePasswordTemplate {
     me: Developer,
     csrf_token: String,

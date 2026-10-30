@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[derive(Template)]
-#[template(path = "admin/key.html")]
+#[template(path = "dashboard/admin/key.html")]
 pub struct AdminKeyPageTemplate {
     me: Developer,
     key: DevApiKey,

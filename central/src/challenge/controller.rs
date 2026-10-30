@@ -1,4 +1,6 @@
 use std::{
+    net::IpAddr,
+    num::NonZeroU32,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -10,6 +12,7 @@ use crate::{
     challenge::{ChallengeError, ChallengeType, compute_challenge_pair, compute_challenge_pair_legacy},
     config::AppConfig,
     node_manager::{NodeManager, node::ArgonNode},
+    util::{RateLimitOutcome, RateLimiter},
 };
 
 use super::ChallengeData;
@@ -71,6 +74,8 @@ pub struct ChallengeController {
     pending_challenges: DashMap<u32, PendingChallenge>,
     node_manager: Arc<NodeManager>,
     legacy_ident: Option<String>,
+
+    rate_limiter: RateLimiter<IpAddr>,
 }
 
 impl ChallengeController {
@@ -86,10 +91,15 @@ impl ChallengeController {
             None
         };
 
+        let mut rate_limiter = RateLimiter::new(Duration::from_mins(15), 16384);
+        rate_limiter.set_replenish_1_per(Duration::from_secs(10));
+        rate_limiter.set_max_burst(NonZeroU32::new(2).unwrap());
+
         Self {
             pending_challenges: DashMap::new(),
             node_manager,
             legacy_ident,
+            rate_limiter,
         }
     }
 
@@ -98,6 +108,7 @@ impl ChallengeController {
         let cutoff = now - CHALLENGE_CLEANUP_TIMEOUT;
 
         self.pending_challenges.retain(|_, c| c.started_at > cutoff);
+        self.rate_limiter.run_cleanup();
     }
 
     pub fn node_manager(&self) -> &Arc<NodeManager> {
@@ -112,6 +123,7 @@ impl ChallengeController {
         &self,
         account_id: i32,
         challenge_type: ChallengeType,
+        ip_addr: IpAddr,
     ) -> Result<ChallengeData, ChallengeError> {
         if self.pending_challenges.len() >= MAX_PENDING_CHALLENGES {
             return Err(ChallengeError::TooManyChallengesInProgress);
@@ -119,6 +131,12 @@ impl ChallengeController {
 
         if !self.node_manager.any_nodes_up() {
             return Err(ChallengeError::NoAvailableResource);
+        }
+
+        match self.rate_limiter.check(ip_addr) {
+            RateLimitOutcome::Allowed => {}
+            RateLimitOutcome::RateLimited { .. } => return Err(ChallengeError::RateLimited),
+            RateLimitOutcome::TooManyLimiters => return Err(ChallengeError::TooManyChallengesInProgress),
         }
 
         let is_legacy = challenge_type == ChallengeType::LegacyProfileField;
@@ -155,8 +173,12 @@ impl ChallengeController {
         })
     }
 
-    pub fn start_legacy_challenge(&self, account_id: i32) -> Result<ChallengeData, ChallengeError> {
-        self.start_challenge(account_id, ChallengeType::LegacyProfileField)
+    pub fn start_legacy_challenge(
+        &self,
+        account_id: i32,
+        ip_addr: IpAddr,
+    ) -> Result<ChallengeData, ChallengeError> {
+        self.start_challenge(account_id, ChallengeType::LegacyProfileField, ip_addr)
     }
 
     pub fn poll_challenge(

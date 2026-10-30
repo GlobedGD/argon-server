@@ -1,10 +1,8 @@
-{% extends "layout.html" %}
+{% extends "dashboard/layout.html" %}
 {% block title %}Set a new password{% endblock %}
 {% block content %}
 
-{% if let Some(flash) = flash %}
-<div class="toast {{ flash.kind.class() }}" role="{{ flash.kind.role() }}">{{ flash.message }}</div>
-{% endif %}
+{% include "_flash.html" %}
 
 <article class="login-card">
     <h1>Set a new password</h1>

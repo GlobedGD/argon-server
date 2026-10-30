@@ -1,15 +1,12 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
-use axum::{
-    Json,
-    extract::{ConnectInfo, State},
-};
+use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 
 use super::ApiResult;
 use crate::{
     challenge::{ChallengeController, ChallengeData, ChallengeType},
-    routes::util::extractors::ExtractRefreshToken,
+    routes::util::extractors::{ExtractRefreshToken, VerifiedIpAddr},
     user::{RefreshedTokenPair, UserManager},
     util::ApiTime,
 };
@@ -30,11 +27,11 @@ pub struct ChallengeResponse {
 /// Requests an auth challenge
 pub async fn login(
     State(controller): State<Arc<ChallengeController>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    VerifiedIpAddr(addr): VerifiedIpAddr,
     Json(data): Json<LoginData>,
 ) -> ApiResult<Json<ChallengeResponse>> {
     let ctype = controller.pick_supported_challenge_type(&data.supported_challenges)?;
-    let data = controller.start_challenge(data.account_id, ctype)?;
+    let data = controller.start_challenge(data.account_id, ctype, addr)?;
 
     Ok(Json(ChallengeResponse { challenge: data }))
 }

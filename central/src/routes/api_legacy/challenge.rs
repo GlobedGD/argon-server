@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     challenge::ChallengeController,
-    routes::api_legacy::{LegacyApiError, LegacyApiResponse, LegacyApiResult},
+    routes::{
+        api_legacy::{LegacyApiError, LegacyApiResponse, LegacyApiResult},
+        util::extractors::VerifiedIpAddr,
+    },
     user::UserManager,
 };
 
@@ -34,6 +37,7 @@ pub struct ChallengeStartResponse {
 
 pub async fn start(
     State(controller): State<Arc<ChallengeController>>,
+    VerifiedIpAddr(ip): VerifiedIpAddr,
     Json(data): Json<ChallengeStartData>,
 ) -> LegacyApiResult<Json<LegacyApiResponse<ChallengeStartResponse>>> {
     // v1 argon client did not care about returned method and always assumed that the actual used method is whatever it prefers.
@@ -43,7 +47,7 @@ pub async fn start(
         return Err(LegacyApiError::UnsupportedChallengeType);
     }
 
-    let data = controller.start_legacy_challenge(data.account_id)?;
+    let data = controller.start_legacy_challenge(data.account_id, ip)?;
 
     Ok(Json(LegacyApiResponse::success(ChallengeStartResponse {
         method: "profile_field".to_owned(),

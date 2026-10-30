@@ -5,7 +5,6 @@ use std::{env, net::SocketAddr};
 
 use axum::Router;
 use tokio::net::TcpListener;
-use tower_http::services::ServeDir;
 use tracing::{error, info};
 
 use crate::{config::AppConfig, state::AppState};
@@ -37,16 +36,12 @@ async fn main() -> anyhow::Result<()> {
 
     maybe_cli(&config, &state).await?;
 
-    let mut app = Router::new()
-        .nest("/v2/", routes::api::router(&config))
-        .merge(routes::web::router(&state, &config))
-        .nest_service("/assets", ServeDir::new(&config.web.assets_dir))
-        // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
-        .route("/oauth/discord/callback", routes::api::discord_oauth_callback());
+    let mut app =
+        Router::new().merge(routes::api::router(&state, &config)).merge(routes::web::router(&state, &config));
 
     // enable legacy routes, if enabled in config
     if config.legacy.enabled {
-        app = app.nest("/v1/", routes::api_legacy::router())
+        app = app.nest("/v1/", routes::api_legacy::router(&state))
     }
 
     let app = app.with_state(state.clone());

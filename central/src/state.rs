@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use axum::extract::FromRef;
 use tokio::time::interval;
@@ -15,6 +15,7 @@ pub struct AppState {
     pub database: Arc<Database>,
     pub user_manager: Arc<UserManager>,
     pub developer_manager: Arc<DeveloperManager>,
+    pub trusted_proxies: Arc<[IpAddr]>,
 }
 
 impl FromRef<AppState> for Arc<DiscordClient> {
@@ -40,6 +41,7 @@ impl AppState {
         };
         let user_manager = Arc::new(UserManager::new(&database, discord_client.clone(), token_issuer));
         let developer_manager = Arc::new(DeveloperManager::new(&database, config));
+        let trusted_proxies = Arc::from(config.http.trusted_proxies.clone());
 
         Self {
             challenge_controller: Arc::new(ChallengeController::new(config, node_manager.clone())),
@@ -47,6 +49,7 @@ impl AppState {
             database,
             user_manager,
             developer_manager,
+            trusted_proxies,
         }
     }
 

@@ -1,9 +1,9 @@
 use axum::{
     Router,
-    routing::{MethodRouter, delete, get, post},
+    routing::{delete, get, post},
 };
 
-use crate::{config::AppConfig, state::AppState};
+use crate::{config::AppConfig, routes::util::rate_limited, state::AppState};
 
 mod account;
 mod check;
@@ -14,30 +14,33 @@ mod status;
 pub type ApiError = error::Error;
 pub type ApiResult<T> = Result<T, ApiError>;
 
-pub fn router(config: &AppConfig) -> Router<AppState> {
+pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
+    let account_router = Router::new()
+        .route("/v2/account/login", post(account::login))
+        .route("/v2/account/login/verify", post(account::verify))
+        .route("/v2/account/verify", post(account::verify)) // TODO: remove this on release
+        .route("/v2/account/refresh", post(account::refresh));
+
     let mut router = Router::new()
         // account
-        .route("/account/login", post(account::login))
-        .route("/account/login/verify", post(account::verify))
-        .route("/account/verify", post(account::verify)) // TODO: remove this on release
-        .route("/account/refresh", post(account::refresh))
-        // tokan validation
-        .route("/token/validate", post(check::check))
+        .merge(rate_limited(account_router, state.clone(), 15, 3))
+        // tokan validation (note: no rate limit, as already done by the extractor there)
+        .route("/v2/token/validate", post(check::check))
         // misc
-        .route("/status", get(status::status));
+        .route("/v2/status", get(status::status));
 
     // conditionally enable discord endpoints
     if config.discord.enabled {
-        router = router
-            .route("/account/discord", get(discord::get_link_state))
-            .route("/account/discord/link", post(discord::link))
-            .route("/account/discord", delete(discord::unlink))
-            .route("/account/discord/sync", post(discord::sync));
+        let discord_router = Router::new()
+            .route("/v2/account/discord", get(discord::get_link_state))
+            .route("/v2/account/discord/link", post(discord::link))
+            .route("/v2/account/discord", delete(discord::unlink))
+            .route("/v2/account/discord/sync", post(discord::sync))
+            // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
+            .route("/oauth/discord/callback", get(discord::link_callback));
+
+        router = router.merge(rate_limited(discord_router, state.clone(), 15, 3));
     }
 
     router
-}
-
-pub fn discord_oauth_callback() -> MethodRouter<AppState> {
-    get(discord::link_callback)
 }

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::{
     RequestPartsExt,
@@ -67,11 +67,33 @@ impl FromRequestParts<AppState> for ApiKeyRateLimit {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let ExtractApiKey(claims) = ExtractApiKey::from_request_parts(parts, state).await?;
-        let ConnectInfo(addr) =
-            parts.extract::<ConnectInfo<SocketAddr>>().await.expect("Failed to extract connect info");
+        let VerifiedIpAddr(ip) = VerifiedIpAddr::from_request_parts(parts, state).await?;
 
-        state.developer_manager.check_rate_limit(claims.as_ref(), addr.ip()).await?;
+        state.developer_manager.check_rate_limit(claims.as_ref(), ip).await?;
 
         Ok(ApiKeyRateLimit)
     }
+}
+
+pub struct VerifiedIpAddr(pub IpAddr);
+
+impl FromRequestParts<AppState> for VerifiedIpAddr {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let ConnectInfo(raw_addr) =
+            parts.extract::<ConnectInfo<SocketAddr>>().await.expect("Failed to extract connect info");
+
+        let ip = if state.trusted_proxies.contains(&raw_addr.ip()) {
+            find_ip_in_headers(parts).unwrap_or(raw_addr.ip())
+        } else {
+            raw_addr.ip()
+        };
+
+        Ok(VerifiedIpAddr(ip))
+    }
+}
+
+fn find_ip_in_headers(parts: &mut Parts) -> Option<IpAddr> {
+    parts.headers.get("X-Forwarded-For")?.to_str().ok()?.split(',').next()?.trim().parse().ok()
 }

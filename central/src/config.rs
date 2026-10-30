@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    time::Duration,
+};
 
 use config::{Config, Environment, File};
 use serde::Deserialize;
@@ -58,12 +62,15 @@ impl AppConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct HttpConfig {
     pub bind: SocketAddr,
+    #[serde(default)]
+    pub trusted_proxies: Vec<IpAddr>,
 }
 
 impl Default for HttpConfig {
     fn default() -> Self {
         Self {
             bind: "0.0.0.0:8000".parse().unwrap(),
+            trusted_proxies: vec![],
         }
     }
 }

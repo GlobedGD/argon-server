@@ -89,7 +89,6 @@ impl DeveloperManager {
         if result == RateLimitOutcome::NotPresent {
             match claims {
                 Some(claims) => {
-                    // TODO
                     let key = self
                         .api_key_repo
                         .get_key(claims.id)

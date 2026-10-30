@@ -70,7 +70,7 @@ impl IntoResponse for WebError {
 }
 
 #[derive(Template)]
-#[template(path = "error.html")]
+#[template(path = "dashboard/error.html")]
 struct ErrorTemplate<'a> {
     error: &'a str,
 }

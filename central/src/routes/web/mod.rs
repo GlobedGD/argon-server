@@ -3,6 +3,7 @@ use axum::{
     response::Redirect,
     routing::{get, post},
 };
+use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::{config::AppConfig, developer::DevSessionStore, state::AppState};
@@ -10,6 +11,7 @@ use crate::{config::AppConfig, developer::DevSessionStore, state::AppState};
 mod admin;
 mod dashboard;
 mod error;
+mod user;
 mod util;
 
 pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
@@ -19,9 +21,9 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
             // insecure in debug
             .with_secure(!cfg!(debug_assertions));
 
-    Router::new()
+    let dashboard_router = Router::new()
+        .nest_service("/assets", ServeDir::new(&config.web.assets_dir))
         // General dashboard / login / logout
-        .route("/", get(index))
         .route("/dashboard", get(dashboard::get_dashboard))
         .route("/dashboard/login", get(dashboard::get_login))
         .route("/dashboard/login", post(dashboard::post_login))
@@ -43,14 +45,13 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
         .route("/dashboard/admin/developers/{id}/keys/{key_id}", post(admin::keys::edit_key))
         .route("/dashboard/admin/developers/{id}/keys/{key_id}/delete", post(admin::keys::delete_key))
         .route("/dashboard/admin/developers/{id}/keys/{key_id}/rotate", post(admin::keys::rotate_key))
-        //
-        .layer(session_layer)
-    // .route("/dashboard", post(dashboard::create))
-    // .route("/dashboard/me", get(dashboard::get_myself))
-    // .route("/dashboard/{id}", get(dashboard::get_developer))
-    // .route("/dashboard/{id}", delete(dashboard::delete))
+        .layer(session_layer);
+
+    let user_router = Router::new().route("/", get(index)).route("/account", get(user::get_account));
+
+    Router::new().merge(dashboard_router).merge(user_router)
 }
 
 async fn index() -> Redirect {
-    Redirect::to("/dashboard")
+    Redirect::to("/account")
 }

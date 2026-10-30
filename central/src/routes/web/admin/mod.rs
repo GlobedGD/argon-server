@@ -20,7 +20,7 @@ use crate::{
 pub mod keys;
 
 #[derive(Template)]
-#[template(path = "admin/index.html")]
+#[template(path = "dashboard/admin/index.html")]
 pub struct AdminPageTemplate {
     me: Developer,
     developers: Vec<Developer>,
@@ -110,7 +110,7 @@ pub async fn reset_developer_password(
 }
 
 #[derive(Template)]
-#[template(path = "admin/developer.html")]
+#[template(path = "dashboard/admin/developer.html")]
 pub struct AdminDeveloperPageTemplate {
     me: Developer,
     csrf_token: String,
