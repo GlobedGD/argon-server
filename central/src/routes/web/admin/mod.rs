@@ -20,7 +20,7 @@ use crate::{
 pub mod keys;
 
 #[derive(Template)]
-#[template(path = "dashboard/admin/index.html")]
+#[template(path = "dev/admin/index.html")]
 pub struct AdminPageTemplate {
     me: Developer,
     developers: Vec<Developer>,
@@ -62,7 +62,7 @@ pub async fn create_developer(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, "/dashboard/admin", flash).await
+    redirect_with_flash(&session, "/dev/admin", flash).await
 }
 
 #[derive(Deserialize)]
@@ -83,7 +83,7 @@ pub async fn delete_developer(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, "/dashboard/admin", flash).await
+    redirect_with_flash(&session, "/dev/admin", flash).await
 }
 
 #[derive(Deserialize)]
@@ -106,11 +106,11 @@ pub async fn reset_developer_password(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, "/dashboard/admin", flash).await
+    redirect_with_flash(&session, "/dev/admin", flash).await
 }
 
 #[derive(Template)]
-#[template(path = "dashboard/admin/developer.html")]
+#[template(path = "dev/admin/developer.html")]
 pub struct AdminDeveloperPageTemplate {
     me: Developer,
     csrf_token: String,

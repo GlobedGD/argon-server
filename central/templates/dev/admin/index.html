@@ -1,4 +1,4 @@
-{% extends "dashboard/layout.html" %}
+{% extends "dev/layout.html" %}
 {% block title %}Admin Dashboard{% endblock %}
 {% block content %}
 
@@ -12,7 +12,7 @@
 <article>
     <!-- form to create a new developer -->
     <header><strong>Create developer</strong></header>
-    <form method="POST" action="/dashboard/admin/developers">
+    <form method="POST" action="/dev/admin/developers">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="grid">
 
@@ -44,7 +44,7 @@
                 <tr>
                     <td>{{ dev.id }}</td>
                     <td>
-                        <a href="/dashboard/admin/developers/{{ dev.id }}">{{ dev.username }}</a>
+                        <a href="/dev/admin/developers/{{ dev.id }}">{{ dev.username }}</a>
                     </td>
                     <td>{% if dev.is_admin %}<mark>admin</mark>{% else %}developer{% endif %}</td>
                     <td class="hide-sm">
@@ -52,13 +52,13 @@
                     </td>
                     <td>
                         <div class="row-actions">
-                            <form method="POST" action="/dashboard/admin/developers/{{ dev.id }}/reset"
+                            <form method="POST" action="/dev/admin/developers/{{ dev.id }}/reset"
                                 data-confirm="Reset password for {{ dev.username }}?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button class="secondary outline" type="submit">Reset password</button>
                             </form>
 
-                            <form method="POST" action="/dashboard/admin/developers/{{ dev.id }}/delete"
+                            <form method="POST" action="/dev/admin/developers/{{ dev.id }}/delete"
                                 data-confirm="Delete {{ dev.username }}?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button class="danger outline" type="submit">Delete</button>

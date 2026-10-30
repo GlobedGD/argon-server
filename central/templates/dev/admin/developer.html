@@ -1,4 +1,4 @@
-{% extends "dashboard/layout.html" %}
+{% extends "dev/layout.html" %}
 {% block title %}{{ developer.username }}{% endblock %}
 {% block content %}
 
@@ -6,7 +6,7 @@
 
 <nav aria-label="breadcrumb">
     <ul>
-        <li><a href="/dashboard/admin">Developers</a></li>
+        <li><a href="/dev/admin">Developers</a></li>
         <li>{{ developer.username }}</li>
     </ul>
 </nav>
@@ -43,7 +43,7 @@
                 {% for key in keys %}
                 <tr>
                     <td>
-                        <a href="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
+                        <a href="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
                             {{ key.name }}
                         </a>
                         {% if !key.description.is_empty() %}
@@ -55,9 +55,9 @@
                     <td>
                         <div class="row-actions">
                             <a role="button" class="secondary outline"
-                                href="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">Edit</a>
+                                href="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}">Edit</a>
                             <form method="POST"
-                                action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
+                                action="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
                                 data-confirm="Rotate this key?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <button class="secondary outline" type="submit">Rotate</button>
@@ -73,7 +73,7 @@
 
     <details>
         <summary>Create API key</summary>
-        <form method="POST" action="/dashboard/admin/developers/{{ developer.id }}/keys">
+        <form method="POST" action="/dev/admin/developers/{{ developer.id }}/keys">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label>Name
                 <input type="text" name="name" required maxlength="64" placeholder="Cool mod server">

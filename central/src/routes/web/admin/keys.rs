@@ -18,7 +18,7 @@ use crate::{
 };
 
 #[derive(Template)]
-#[template(path = "dashboard/admin/key.html")]
+#[template(path = "dev/admin/key.html")]
 pub struct AdminKeyPageTemplate {
     me: Developer,
     key: DevApiKey,
@@ -69,7 +69,7 @@ pub async fn create_key(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, &format!("/dashboard/admin/developers/{dev_id}"), flash).await
+    redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await
 }
 
 #[derive(Deserialize)]
@@ -96,7 +96,7 @@ pub async fn edit_key(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, &format!("/dashboard/admin/developers/{dev_id}/keys/{key_id}"), flash).await
+    redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}/keys/{key_id}"), flash).await
 }
 
 #[derive(Deserialize)]
@@ -117,7 +117,7 @@ pub async fn delete_key(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, &format!("/dashboard/admin/developers/{dev_id}"), flash).await
+    redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await
 }
 
 #[derive(Deserialize)]
@@ -139,7 +139,7 @@ pub async fn rotate_key(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, &format!("/dashboard/admin/developers/{dev_id}"), flash).await
+    redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await
 }
 
 fn parse_reload_ns(period: &str, requests: u64) -> Result<u64, WebError> {

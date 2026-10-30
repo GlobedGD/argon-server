@@ -1,4 +1,4 @@
-{% extends "dashboard/layout.html" %}
+{% extends "dev/layout.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 
@@ -38,8 +38,7 @@
                     <td class="hide-sm">{{ key.rate_limit_summary() }}</td>
                     <td class="hide-sm">{{ key.created_at_str() }}</td>
                     <td>
-                        <form method="POST" action="/dashboard/keys/{{ key.id }}/rotate"
-                            data-confirm="Rotate this key?">
+                        <form method="POST" action="/dev/keys/{{ key.id }}/rotate" data-confirm="Rotate this key?">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                             <button class="secondary outline" type="submit">Rotate</button>
                         </form>

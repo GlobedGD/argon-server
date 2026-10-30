@@ -54,7 +54,7 @@ impl IntoResponse for WebError {
         debug!("web error: {self:?}");
 
         match self {
-            Self::NotLoggedIn => Redirect::to("/dashboard/login").into_response(),
+            Self::NotLoggedIn => Redirect::to("/dev/login").into_response(),
             Self::InvalidCredentials => render_error(StatusCode::UNAUTHORIZED, "Invalid login credentials"),
             Self::BadRequest(msg) => render_error(StatusCode::BAD_REQUEST, msg),
             Self::Csrf => render_error(StatusCode::FORBIDDEN, "CSRF verification failed, please try again"),
@@ -70,7 +70,7 @@ impl IntoResponse for WebError {
 }
 
 #[derive(Template)]
-#[template(path = "dashboard/error.html")]
+#[template(path = "dev/error.html")]
 struct ErrorTemplate<'a> {
     error: &'a str,
 }

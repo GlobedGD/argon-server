@@ -18,13 +18,13 @@
             </ul>
             <ul>
                 {% if me is defined %}
-                <li><a class="nav-btn" href="/dashboard">Dashboard</a></li>
+                <li><a class="nav-btn" href="/dev">Dashboard</a></li>
                 {% if me.is_admin %}
-                <li><a class="nav-btn" href="/dashboard/admin">Admin</a></li>
+                <li><a class="nav-btn" href="/dev/admin">Admin</a></li>
                 {% endif %}
 
                 <li>
-                    <form method="POST" action="/dashboard/logout">
+                    <form method="POST" action="/dev/logout">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="nav-btn outline" type="submit">Logout</button>
                     </form>

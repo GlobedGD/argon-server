@@ -24,7 +24,7 @@ use crate::{
 };
 
 #[derive(Template)]
-#[template(path = "dashboard/index.html")]
+#[template(path = "dev/index.html")]
 pub struct DashboardTemplate {
     me: Developer,
     csrf_token: String,
@@ -37,7 +37,7 @@ pub async fn get_dashboard(
     State(dev_manager): State<Arc<DeveloperManager>>,
 ) -> WebResult<Response> {
     if !dev.setup_complete {
-        return Ok(Redirect::to("/dashboard/setup").into_response());
+        return Ok(Redirect::to("/dev/setup").into_response());
     }
 
     let keys = dev_manager.get_developer_keys(dev.id).await?;
@@ -52,7 +52,7 @@ pub async fn get_dashboard(
 }
 
 #[derive(Template)]
-#[template(path = "dashboard/setup.html")]
+#[template(path = "dev/setup.html")]
 pub struct SetupTemplate {
     me: Developer,
     csrf_token: String,
@@ -82,7 +82,7 @@ pub async fn post_setup(
     verify_csrf_token(&session, &data.csrf_token).await?;
 
     if dev.setup_complete {
-        return Ok(Redirect::to("/dashboard"));
+        return Ok(Redirect::to("/dev"));
     }
 
     match dev_manager.set_developer_password(dev.id, &data.password, false).await {
@@ -90,10 +90,10 @@ pub async fn post_setup(
             // this kills all sessions including the current one, so make the user log in again
             session.flush().await?;
 
-            Ok(Redirect::to("/dashboard/login"))
+            Ok(Redirect::to("/dev/login"))
         }
 
-        Err(e) => redirect_with_flash(&session, "/dashboard/setup", password_setup_err_msg(&e)).await,
+        Err(e) => redirect_with_flash(&session, "/dev/setup", password_setup_err_msg(&e)).await,
     }
 }
 
@@ -106,7 +106,7 @@ fn password_setup_err_msg(e: &DevError) -> Flash {
 }
 
 #[derive(Template, Default)]
-#[template(path = "dashboard/login.html")]
+#[template(path = "dev/login.html")]
 pub struct LoginTemplate {
     csrf_token: String,
     username: String,
@@ -115,7 +115,7 @@ pub struct LoginTemplate {
 
 pub async fn get_login(session: Session) -> WebResult<Response> {
     if session.get::<i64>("dev_id").await?.is_some() {
-        return Ok(Redirect::to("/dashboard").into_response());
+        return Ok(Redirect::to("/dev").into_response());
     }
 
     // set csrf token
@@ -150,7 +150,7 @@ pub async fn post_login(
             // generate new csrf token
             rotate_csrf_token(&session).await?;
 
-            Ok(Redirect::to("/dashboard").into_response())
+            Ok(Redirect::to("/dev").into_response())
         }
 
         Err(LoginError::InvalidCredentials) => Ok(login_error(
@@ -203,11 +203,11 @@ pub async fn post_logout(session: Session, Form(data): Form<LogoutData>) -> WebR
     verify_csrf_token(&session, &data.csrf_token).await?;
 
     session.flush().await?;
-    Ok(Redirect::to("/dashboard/login"))
+    Ok(Redirect::to("/dev/login"))
 }
 
 #[derive(Template)]
-#[template(path = "dashboard/change_password.html")]
+#[template(path = "dev/change_password.html")]
 pub struct ChangePasswordTemplate {
     me: Developer,
     csrf_token: String,
@@ -238,9 +238,9 @@ pub async fn change_password(
     verify_csrf_token(&session, &data.csrf_token).await?;
 
     match dev_manager.handle_change_password(dev.id, &data.old_password, &data.new_password).await {
-        Ok(()) => Ok(Redirect::to("/dashboard")),
+        Ok(()) => Ok(Redirect::to("/dev")),
 
-        Err(e) => redirect_with_flash(&session, "/dashboard/password", password_setup_err_msg(&e)).await,
+        Err(e) => redirect_with_flash(&session, "/dev/password", password_setup_err_msg(&e)).await,
     }
 }
 
@@ -263,7 +263,7 @@ pub async fn rotate_key(
         Err(e) => Flash::from_dev_error(e)?,
     };
 
-    redirect_with_flash(&session, "/dashboard", flash).await
+    redirect_with_flash(&session, "/dev", flash).await
 }
 
 fn generate_secret() -> String {

@@ -1,4 +1,4 @@
-{% extends "dashboard/layout.html" %}
+{% extends "dev/layout.html" %}
 {% block title %}Edit key{% endblock %}
 {% block content %}
 
@@ -6,8 +6,8 @@
 
 <nav aria-label="breadcrumb">
     <ul>
-        <li><a href="/dashboard/admin">Developers</a></li>
-        <li><a href="/dashboard/admin/developers/{{ developer.id }}">{{ developer.username }}</a></li>
+        <li><a href="/dev/admin">Developers</a></li>
+        <li><a href="/dev/admin/developers/{{ developer.id }}">{{ developer.username }}</a></li>
         <li>{{ key.name }}</li>
     </ul>
 </nav>
@@ -18,7 +18,7 @@
 </header>
 
 <article>
-    <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
+    <form method="post" action="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
         <label>Name
@@ -53,13 +53,13 @@
 <article>
     <header><strong>Danger zone</strong></header>
     <div class="row-actions">
-        <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
+        <form method="post" action="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}/rotate"
             data-confirm="Rotate this key? The old secret stops working immediately.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="secondary outline" type="submit">Rotate secret</button>
         </form>
 
-        <form method="post" action="/dashboard/admin/developers/{{ developer.id }}/keys/{{ key.id }}/delete"
+        <form method="post" action="/dev/admin/developers/{{ developer.id }}/keys/{{ key.id }}/delete"
             data-confirm="Delete this API key? This cannot be undone.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="danger outline" type="submit">Delete key</button>

@@ -37,7 +37,12 @@ pub struct DevApiKey {
 impl DevApiKey {
     pub fn rate_limit_summary(&self) -> String {
         let per_second = Duration::from_secs(1).as_nanos() as f64 / self.request_reload_ns as f64;
-        format!("{} requests per second", per_second)
+        let mut number_fmt = format!("{:.1}", per_second);
+        if number_fmt.ends_with(".0") {
+            number_fmt.truncate(number_fmt.len() - 2);
+        }
+
+        format!("{number_fmt} requests per second")
     }
 
     pub fn created_at_str(&self) -> String {

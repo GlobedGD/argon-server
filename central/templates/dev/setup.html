@@ -1,4 +1,4 @@
-{% extends "dashboard/layout.html" %}
+{% extends "dev/layout.html" %}
 {% block title %}Set a new password{% endblock %}
 {% block content %}
 
@@ -6,7 +6,7 @@
 
 <article class="login-card">
     <h1>Set a new password</h1>
-    <form method="POST" action="/dashboard/setup">
+    <form method="POST" action="/dev/setup">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
         <label for="password">Password</label>
