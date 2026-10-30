@@ -11,7 +11,7 @@ pub struct Model {
     pub description: String,
     pub secret: String,
     pub owner: i64,
-    pub request_reload_ms: i64,
+    pub request_reload_ns: i64,
     pub created_at: DateTime,
 }
 

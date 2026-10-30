@@ -33,7 +33,7 @@ impl MigrationTrait for Migration {
                     .col(string("description"))
                     .col(string("secret"))
                     .col(integer("owner"))
-                    .col(integer("request_reload_ms"))
+                    .col(integer("request_reload_ns"))
                     .col(date_time("created_at"))
                     .to_owned(),
             )

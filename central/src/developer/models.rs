@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
@@ -28,14 +30,14 @@ pub struct DevApiKey {
     pub name: String,
     pub description: String,
     pub created_at: DateTime<Utc>,
-    pub request_reload_ms: u64,
+    pub request_reload_ns: u64,
     pub owner: i64,
 }
 
 impl DevApiKey {
     pub fn rate_limit_summary(&self) -> String {
-        let per_second = 1000.0 / self.request_reload_ms as f64;
-        format!("{:.1} requests per second", per_second)
+        let per_second = Duration::from_secs(1).as_nanos() as f64 / self.request_reload_ns as f64;
+        format!("{} requests per second", per_second)
     }
 
     pub fn created_at_str(&self) -> String {
@@ -48,7 +50,7 @@ impl DevApiKey {
             name: model.name,
             description: model.description,
             created_at: model.created_at.and_utc(),
-            request_reload_ms: model.request_reload_ms as u64,
+            request_reload_ns: model.request_reload_ns as u64,
             owner: model.owner,
         }
     }

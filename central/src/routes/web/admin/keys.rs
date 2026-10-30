@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use askama::Template;
 use axum::{
@@ -62,9 +62,9 @@ pub async fn create_key(
 ) -> WebResult<Redirect> {
     verify_csrf_token(&session, &data.csrf_token).await?;
 
-    let request_reload_ms = parse_reload_ms(&data.period, data.requests)?;
+    let request_reload_ns = parse_reload_ns(&data.period, data.requests)?;
 
-    let flash = match dev_manager.create_key(dev_id, &data.name, &data.description, request_reload_ms).await {
+    let flash = match dev_manager.create_key(dev_id, &data.name, &data.description, request_reload_ns).await {
         Ok(_) => Flash::success("Successfully created key"),
         Err(e) => Flash::from_dev_error(e)?,
     };
@@ -89,9 +89,9 @@ pub async fn edit_key(
 ) -> WebResult<Redirect> {
     verify_csrf_token(&session, &data.csrf_token).await?;
 
-    let request_reload_ms = parse_reload_ms(&data.period, data.requests)?;
+    let request_reload_ns = parse_reload_ns(&data.period, data.requests)?;
 
-    let flash = match dev_manager.edit_key(key_id, &data.name, &data.description, request_reload_ms).await {
+    let flash = match dev_manager.edit_key(key_id, &data.name, &data.description, request_reload_ns).await {
         Ok(_) => Flash::success("Successfully updated key"),
         Err(e) => Flash::from_dev_error(e)?,
     };
@@ -142,15 +142,17 @@ pub async fn rotate_key(
     redirect_with_flash(&session, &format!("/dashboard/admin/developers/{dev_id}"), flash).await
 }
 
-fn parse_reload_ms(period: &str, requests: u64) -> Result<u64, WebError> {
-    let period_ms = match period {
-        "second" => 1000,
-        "minute" => 60_000,
-        "hour" => 3_600_000,
-        "day" => 86_400_000,
+fn parse_reload_ns(period: &str, requests: u64) -> Result<u64, WebError> {
+    let period_s = match period {
+        "second" => 1,
+        "minute" => 60,
+        "hour" => 3600,
+        "day" => 86400,
         _ => return Err(WebError::BadRequest("Invalid period".to_string())),
     };
-    Ok(period_ms / requests)
+
+    let period_ns = Duration::from_secs(period_s).as_nanos() as u64;
+    Ok(period_ns / requests)
 }
 
 fn generate_secret() -> String {

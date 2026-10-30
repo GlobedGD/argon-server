@@ -96,7 +96,7 @@ impl DeveloperManager {
                         .await?
                         .ok_or(ApiError::ApiKeyDecode(ApiKeyError::InvalidKey))?;
 
-                    let replenish_per = Duration::from_millis(key.request_reload_ms as u64);
+                    let replenish_per = Duration::from_nanos(key.request_reload_ns as u64);
                     self.limiter.insert_key_id(claims.id, replenish_per, self.ip_max_burst)?;
                 }
                 None => {
@@ -262,7 +262,7 @@ impl DeveloperManager {
         dev_id: i64,
         name: &str,
         description: &str,
-        request_reload_ms: u64,
+        request_reload_ns: u64,
     ) -> Result<DevApiKey, DevError> {
         let model = dev_api_key::ActiveModel {
             name: Set(name.to_owned()),
@@ -270,7 +270,7 @@ impl DeveloperManager {
             // Note: the repository ensures that a key with no secret isn't considered valid, the user will rotate the secret themselves later
             secret: Set(String::new()),
             owner: Set(dev_id),
-            request_reload_ms: Set(request_reload_ms.max(1) as i64),
+            request_reload_ns: Set(request_reload_ns.max(1) as i64),
             created_at: Set(chrono::Utc::now().naive_utc()),
             ..Default::default()
         };
@@ -284,12 +284,12 @@ impl DeveloperManager {
         key_id: i64,
         name: &str,
         description: &str,
-        request_reload_ms: u64,
+        request_reload_ns: u64,
     ) -> Result<DevApiKey, DevError> {
         let mut key = self.api_key_repo.get_key(key_id).await?.ok_or(DevError::NotFound)?.into_active_model();
         key.name = Set(name.to_owned());
         key.description = Set(description.to_owned());
-        key.request_reload_ms = Set(request_reload_ms.max(1) as i64);
+        key.request_reload_ns = Set(request_reload_ns.max(1) as i64);
 
         let key = self.api_key_repo.update(key).await?;
         Ok(key.into())
