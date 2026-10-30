@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -80,7 +82,7 @@ impl IntoResponse for Error {
         });
 
         if let Error::RateLimited { until } = &self {
-            body["retry_after"] = serde_json::json!(until.elapsed().as_secs_f64());
+            body["retry_after"] = serde_json::json!(until.duration_since(Instant::now()).as_secs_f64());
         }
 
         (self.status_code(), axum::Json(body)).into_response()

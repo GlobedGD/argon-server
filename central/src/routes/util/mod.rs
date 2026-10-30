@@ -1,9 +1,10 @@
 use std::{net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
 
-use axum::{Router, extract::Request, http::StatusCode, middleware::Next, response::IntoResponse};
+use anyhow::anyhow;
+use axum::{Router, extract::Request, middleware::Next, response::IntoResponse};
 
 use crate::{
-    routes::util::extractors::VerifiedIpAddr,
+    routes::{api::ApiError, util::extractors::VerifiedIpAddr},
     state::AppState,
     util::{RateLimitOutcome, RateLimiter},
 };
@@ -27,7 +28,10 @@ where
             async move {
                 match limiter.check(ip) {
                     RateLimitOutcome::Allowed => next.run(request).await,
-                    _ => StatusCode::TOO_MANY_REQUESTS.into_response(),
+                    RateLimitOutcome::RateLimited { until } => {
+                        ApiError::RateLimited { until }.into_response()
+                    }
+                    e => ApiError::Internal(anyhow!("unexpected rate limiter error: {e:?}")).into_response(),
                 }
             }
         },
