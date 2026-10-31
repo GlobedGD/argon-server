@@ -46,14 +46,44 @@ header nav form {
 
 .toast {
     position: fixed;
-    top: 1rem;
     right: 1rem;
+    bottom: 1rem;
     z-index: 10;
+
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    max-width: min(28rem, calc(100vw - 2rem));
+
     padding: .75rem 1rem;
     border-radius: var(--pico-border-radius);
     background: var(--pico-card-background-color);
     border: 1px solid var(--pico-muted-border-color);
     box-shadow: 0 4px 12px rgb(0 0 0 / .12);
+}
+
+.toast>span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+button.toast-close {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    padding: 0 .25rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: none;
+}
+
+button.toast-close:hover {
+    opacity: .7;
 }
 
 .toast.success {

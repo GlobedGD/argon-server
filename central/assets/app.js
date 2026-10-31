@@ -5,3 +5,10 @@ document.querySelectorAll('form[data-confirm]').forEach((form) => {
         }
     });
 });
+
+document.addEventListener('click', (event) => {
+    const close = event.target.closest('.toast-close');
+    if (close) {
+        close.closest('.toast').remove();
+    }
+});

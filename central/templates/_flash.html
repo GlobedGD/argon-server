@@ -1,3 +1,6 @@
 {% if let Some(flash) = flash %}
-<div class="toast {{ flash.kind.class() }}" role="{{ flash.kind.role() }}">{{ flash.message }}</div>
+<div class="toast {{ flash.kind.class() }}" role="{{ flash.kind.role() }}">
+    <span>{{ flash.message }}</span>
+    <button type="button" class="toast-close" aria-label="Dismiss notification">&times;</button>
+</div>
 {% endif %}
