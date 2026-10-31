@@ -1,14 +1,19 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::Utc;
+use dashmap::DashMap;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use shared::message::GDAccountData;
+use uuid::Uuid;
 
 use crate::{
     db::{
         Database, Result,
         entity::{discord_user, user},
-        repository::{DiscordUserRepository, UserRepository},
+        repository::{DiscordUserRepository, UserRepository, UserSessionRepository},
     },
     discord::{
         client::{DiscordClient, DiscordUserData, DiscordUserDataFull},
@@ -16,14 +21,22 @@ use crate::{
     },
     routes::api::{ApiError, ApiResult},
     token::{AccessToken, RefreshToken, Scope, TokenClaims, TokenIssuer},
-    user::TokenValidationError,
+    user::{TokenValidationError, User},
 };
+
+struct WebAccessCodeData {
+    account_data: GDAccountData,
+    expires_at: Instant,
+}
 
 pub struct UserManager {
     user_repository: UserRepository,
     discord_user_repository: DiscordUserRepository,
     discord_client: Option<Arc<DiscordClient>>,
     token_issuer: TokenIssuer,
+    session_repo: UserSessionRepository,
+
+    web_access_codes: DashMap<String, WebAccessCodeData>,
 }
 
 pub struct RefreshedTokenPair {
@@ -44,6 +57,8 @@ impl UserManager {
             discord_user_repository: database.discord_user_repository.clone(),
             discord_client,
             token_issuer,
+            session_repo: database.user_session_repository.clone(),
+            web_access_codes: DashMap::new(),
         }
     }
 
@@ -55,10 +70,17 @@ impl UserManager {
         self.discord_client.as_ref()
     }
 
-    pub fn run_cleanup(&self) {
+    pub async fn run_cleanup(&self) {
         if let Some(dc) = &self.discord_client {
             dc.run_cleanup();
         }
+
+        // cleanup sessions
+        let _ = self.session_repo.delete_expired(chrono::Utc::now().naive_utc()).await;
+
+        // cleanup access codes
+        let now = Instant::now();
+        self.web_access_codes.retain(|_, v| v.expires_at > now);
     }
 
     pub async fn on_challenge_completed(&self, account_data: &GDAccountData) -> Result<RefreshedTokenPair> {
@@ -87,6 +109,28 @@ impl UserManager {
                 // user not in db, use simple auth
                 Ok(self.generate_new_tokens(account_data, 0))
             }
+        }
+    }
+
+    pub fn generate_web_access_code(&self, account_data: &GDAccountData) -> String {
+        let code = Uuid::new_v4().simple().to_string();
+        self.web_access_codes.insert(
+            code.clone(),
+            WebAccessCodeData {
+                account_data: account_data.clone(),
+                expires_at: Instant::now() + Duration::from_mins(3),
+            },
+        );
+
+        code
+    }
+
+    pub fn verify_web_access_code(&self, code: &str) -> Option<GDAccountData> {
+        let (_, data) = self.web_access_codes.remove(code)?;
+        if data.expires_at > Instant::now() {
+            Some(data.account_data)
+        } else {
+            None
         }
     }
 
@@ -166,6 +210,37 @@ impl UserManager {
         }
 
         Ok(claims)
+    }
+
+    /// Gets a user from the database or creates one lazily. Does not insert into database eagerly.
+    /// If the user existed in the database, this does however eagerly update the username & user ID in the database if they are not present or oudated.
+    pub async fn get_or_create_user(&self, account_data: &GDAccountData) -> Result<User> {
+        let model = self.user_repository.get_user(account_data.account_id).await?;
+
+        match model {
+            Some(mut model) => {
+                if model.username.as_deref().is_none_or(|u| u != account_data.username)
+                    || model.gd_user_id.is_none_or(|id| id != account_data.user_id as i64)
+                {
+                    // update the user in the database
+                    let mut active = model.into_active_model();
+                    active.username = Set(Some(account_data.username.clone()));
+                    active.gd_user_id = Set(Some(account_data.user_id as i64));
+                    model = self.user_repository.update(active).await?;
+                }
+
+                Ok(model.into())
+            }
+
+            None => Ok(User::new(account_data)),
+        }
+    }
+
+    /// Performs an upsert, updating the existing user or creating a new one.
+    pub async fn update_user(&self, user: User) -> Result<()> {
+        let model: user::Model = user.into();
+        self.user_repository.upsert_all(model.into_active_model()).await?;
+        Ok(())
     }
 
     pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {

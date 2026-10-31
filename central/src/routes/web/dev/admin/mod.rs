@@ -2,22 +2,39 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::{
-    Form,
+    Form, Router,
     extract::{Path, State},
     response::Redirect,
+    routing::{get, post},
 };
 use rand::{RngExt, distr::Alphanumeric};
 use serde::Deserialize;
 
+use super::{
+    error::{WebError, WebResult, flash_from_dev_error},
+    session::AdminSession,
+};
 use crate::{
     developer::{DevApiKey, Developer, DeveloperManager},
     routes::web::{
-        error::{WebError, WebResult},
-        util::{AdminSession, Flash, Html, csrf_token, redirect_with_flash, take_flash, verify_csrf_token},
+        Html,
+        csrf::{csrf_token, verify_csrf_token},
+        flash::{Flash, redirect_with_flash, take_flash},
     },
+    state::AppState,
 };
 
 pub mod keys;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/", get(get_admin))
+        .route("/developers", post(create_developer))
+        .route("/developers/{id}", get(get_developer))
+        .route("/developers/{id}/reset", post(reset_developer_password))
+        .route("/developers/{id}/delete", post(delete_developer))
+        .merge(keys::router())
+}
 
 #[derive(Template)]
 #[template(path = "dev/admin/index.html")]
@@ -59,7 +76,7 @@ pub async fn create_developer(
             "Created developer {}, temporary password: {}",
             other.username, temp_password
         )),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, "/dev/admin", flash).await
@@ -80,7 +97,7 @@ pub async fn delete_developer(
 
     let flash = match dev_manager.delete_developer(id).await {
         Ok(()) => Flash::success(format!("Deleted developer with ID {}", id)),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, "/dev/admin", flash).await
@@ -103,7 +120,7 @@ pub async fn reset_developer_password(
 
     let flash = match dev_manager.set_developer_password(id, &temp_password, true).await {
         Ok(()) => Flash::success(format!("Reset successful, new password: {temp_password}")),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, "/dev/admin", flash).await

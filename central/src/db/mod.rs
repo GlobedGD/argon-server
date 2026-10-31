@@ -4,7 +4,7 @@ use crate::{
     config::AppConfig,
     db::repository::{
         DevAccountRepository, DevApiKeyRepository, DevSessionRepository, DiscordUserRepository,
-        UserRepository,
+        UserRepository, UserSessionRepository,
     },
 };
 use migration::{Migrator, MigratorTrait};
@@ -18,6 +18,7 @@ pub struct Database {
     pub dev_account_repository: DevAccountRepository,
     pub dev_api_key_repository: DevApiKeyRepository,
     pub dev_session_repository: DevSessionRepository,
+    pub user_session_repository: UserSessionRepository,
 }
 
 pub type Result<T> = std::result::Result<T, sea_orm::DbErr>;
@@ -38,6 +39,7 @@ impl Database {
             dev_account_repository: DevAccountRepository::new(db.clone()),
             dev_api_key_repository: DevApiKeyRepository::new(db.clone()),
             dev_session_repository: DevSessionRepository::new(db.clone()),
+            user_session_repository: UserSessionRepository::new(db.clone()),
         })
     }
 }

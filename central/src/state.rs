@@ -69,7 +69,7 @@ impl AppState {
                 }
 
                 _ = um_cleanup.tick() => {
-                    self.user_manager.run_cleanup();
+                    self.user_manager.run_cleanup().await;
                 }
 
                 _ = dm_cleanup.tick() => {

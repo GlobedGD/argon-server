@@ -19,7 +19,8 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
         .route("/v2/account/login", post(account::login))
         .route("/v2/account/login/verify", post(account::verify))
         .route("/v2/account/verify", post(account::verify)) // TODO: remove this on release
-        .route("/v2/account/refresh", post(account::refresh));
+        .route("/v2/account/refresh", post(account::refresh))
+        .route("/v2/account/webtoken", post(account::generate_web_token));
 
     let mut router = Router::new()
         // account

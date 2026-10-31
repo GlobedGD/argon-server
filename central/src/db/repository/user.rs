@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::extract::FromRef;
 use migration::OnConflict;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Iterable};
 
 #[derive(Clone)]
 pub struct UserRepository {
@@ -46,6 +46,11 @@ impl UserRepository {
             .await?;
 
         Ok(res)
+    }
+
+    /// Like upsert but updates all columns
+    pub async fn upsert_all(&self, user: user::ActiveModel) -> Result<user::Model> {
+        self.upsert(user, user::Column::iter().collect::<Vec<_>>()).await
     }
 }
 

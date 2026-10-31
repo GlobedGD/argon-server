@@ -17,11 +17,9 @@ use crate::{
 mod error;
 mod models;
 mod rate_limiter;
-mod session_store;
 
 pub use error::*;
 pub use models::*;
-pub use session_store::DevSessionStore;
 
 pub struct DeveloperManager {
     account_repo: DevAccountRepository,

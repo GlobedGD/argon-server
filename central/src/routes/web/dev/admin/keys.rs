@@ -2,20 +2,35 @@ use std::{sync::Arc, time::Duration};
 
 use askama::Template;
 use axum::{
-    Form,
+    Form, Router,
     extract::{Path, State},
     response::Redirect,
+    routing::{get, post},
 };
 use serde::Deserialize;
 use uuid::Uuid;
 
+use super::super::{
+    error::{WebError, WebResult, flash_from_dev_error},
+    session::AdminSession,
+};
 use crate::{
     developer::{DevApiKey, Developer, DeveloperManager},
     routes::web::{
-        error::{WebError, WebResult},
-        util::{AdminSession, Flash, Html, csrf_token, redirect_with_flash, take_flash, verify_csrf_token},
+        Html,
+        csrf::{csrf_token, verify_csrf_token},
+        flash::{Flash, redirect_with_flash, take_flash},
     },
+    state::AppState,
 };
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/developers/{id}/keys", post(create_key))
+        .route("/developers/{id}/keys/{key_id}", get(get_key).post(edit_key))
+        .route("/developers/{id}/keys/{key_id}/delete", post(delete_key))
+        .route("/developers/{id}/keys/{key_id}/rotate", post(rotate_key))
+}
 
 #[derive(Template)]
 #[template(path = "dev/admin/key.html")]
@@ -66,7 +81,7 @@ pub async fn create_key(
 
     let flash = match dev_manager.create_key(dev_id, &data.name, &data.description, request_reload_ns).await {
         Ok(_) => Flash::success("Successfully created key"),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await
@@ -93,7 +108,7 @@ pub async fn edit_key(
 
     let flash = match dev_manager.edit_key(key_id, &data.name, &data.description, request_reload_ns).await {
         Ok(_) => Flash::success("Successfully updated key"),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}/keys/{key_id}"), flash).await
@@ -114,7 +129,7 @@ pub async fn delete_key(
 
     let flash = match dev_manager.delete_key(key_id).await {
         Ok(_) => Flash::success("Successfully deleted key"),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await
@@ -136,7 +151,7 @@ pub async fn rotate_key(
     let new_secret = generate_secret();
     let flash = match dev_manager.rotate_key(dev_id, key_id, &new_secret).await {
         Ok(key) => Flash::success(format!("Key rotated: \"{key}\"")),
-        Err(e) => Flash::from_dev_error(e)?,
+        Err(e) => flash_from_dev_error(e)?,
     };
 
     redirect_with_flash(&session, &format!("/dev/admin/developers/{dev_id}"), flash).await

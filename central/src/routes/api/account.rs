@@ -30,6 +30,9 @@ pub async fn login(
     VerifiedIpAddr(addr): VerifiedIpAddr,
     Json(data): Json<LoginData>,
 ) -> ApiResult<Json<ChallengeResponse>> {
+    // TODO: analytics
+    let _ = data.requesting_mod;
+
     let ctype = controller.pick_supported_challenge_type(&data.supported_challenges)?;
     let data = controller.start_challenge(data.account_id, ctype, addr)?;
 
@@ -102,4 +105,18 @@ pub async fn verify(
         completed: true,
         tokens: Some(pair.into()),
     }))
+}
+
+#[derive(Serialize)]
+pub struct WebTokenResponse {
+    pub token: String,
+}
+
+/// Generates an access code that can be passed to /login endpoint to automatically log into the user-facing part of the website.
+pub async fn generate_web_token(
+    State(user_manager): State<Arc<UserManager>>,
+    ExtractRefreshToken { claims }: ExtractRefreshToken,
+) -> ApiResult<Json<WebTokenResponse>> {
+    let code = user_manager.generate_web_access_code(&claims.account_data());
+    Ok(Json(WebTokenResponse { token: code }))
 }

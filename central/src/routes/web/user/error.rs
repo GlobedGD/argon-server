@@ -6,17 +6,14 @@ use axum::{
 use thiserror::Error;
 use tracing::{debug, error};
 
-use crate::{
-    developer::{DevError, LoginError},
-    routes::web::util::Html,
-};
+use crate::routes::web::{Html, session::SessionError};
 
 #[derive(Debug, Error)]
 pub enum WebError {
     #[error("not logged in")]
     NotLoggedIn,
-    #[error("invalid login credentials")]
-    InvalidCredentials,
+    #[error("access code expired")]
+    AccessCodeExpired,
     #[error("forbidden")]
     Forbidden,
     #[error("database error: {0}")]
@@ -35,16 +32,11 @@ pub enum WebError {
 
 pub type WebResult<T> = Result<T, WebError>;
 
-impl From<DevError> for WebError {
-    fn from(e: DevError) -> Self {
+impl From<SessionError> for WebError {
+    fn from(e: SessionError) -> Self {
         match e {
-            DevError::Database(e) | DevError::Login(LoginError::DatabaseError(e)) => Self::Database(e),
-            DevError::Login(LoginError::InvalidCredentials) => Self::InvalidCredentials,
-            DevError::NotFound => Self::NotFound,
-            DevError::UsernameLength | DevError::PasswordLength | DevError::UsernameTaken => {
-                Self::BadRequest(e.to_string())
-            }
-            DevError::PwHashFailed => Self::Internal(anyhow::Error::new(e)),
+            SessionError::Session(e) => Self::Session(e),
+            SessionError::Csrf => Self::Csrf,
         }
     }
 }
@@ -54,8 +46,10 @@ impl IntoResponse for WebError {
         debug!("web error: {self:?}");
 
         match self {
-            Self::NotLoggedIn => Redirect::to("/dev/login").into_response(),
-            Self::InvalidCredentials => render_error(StatusCode::UNAUTHORIZED, "Invalid login credentials"),
+            Self::NotLoggedIn => Redirect::to("/login").into_response(),
+            Self::AccessCodeExpired => {
+                render_error(StatusCode::UNAUTHORIZED, "Access code expired, please try to log in again")
+            }
             Self::BadRequest(msg) => render_error(StatusCode::BAD_REQUEST, msg),
             Self::Csrf => render_error(StatusCode::FORBIDDEN, "CSRF verification failed, please try again"),
             Self::Forbidden => render_error(StatusCode::FORBIDDEN, "Forbidden"),
@@ -70,7 +64,7 @@ impl IntoResponse for WebError {
 }
 
 #[derive(Template)]
-#[template(path = "dev/error.html")]
+#[template(path = "error.html")]
 struct ErrorTemplate<'a> {
     error: &'a str,
 }

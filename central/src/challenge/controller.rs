@@ -22,7 +22,7 @@ use shared::{
     message::{GDAccountData, UserChallengeOutcome},
     resource::ResourceKey,
 };
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 const CHALLENGE_TIMEOUT: Duration = Duration::from_secs(30);
 const CHALLENGE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(45);
@@ -218,8 +218,13 @@ impl ChallengeController {
 
         // remove challenge only if the result is not Ok(None), aka pending
         let terminal = matches!(result, Ok(Some(_)) | Err(_));
-        if terminal {
-            self.pending_challenges.remove(&challenge_id);
+        if terminal && let Some((_, c)) = self.pending_challenges.remove(&challenge_id) {
+            info!(
+                "challenge for account {} completed after {:?}, result: {:?}",
+                account_id,
+                c.started_at.elapsed(),
+                result
+            );
         }
 
         result

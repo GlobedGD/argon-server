@@ -2,5 +2,5 @@
 
 pub use super::{
     dev_account::Entity as DevAccount, dev_api_key::Entity as DevApiKey, dev_session::Entity as DevSession,
-    discord_user::Entity as DiscordUser, user::Entity as User,
+    discord_user::Entity as DiscordUser, user::Entity as User, user_session::Entity as UserSession,
 };
