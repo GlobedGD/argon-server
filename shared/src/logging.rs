@@ -131,8 +131,8 @@ pub fn init(config: &LoggingConfig) -> LoggerGuard {
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("unknown panic");
 
-        error!("Panic occurred at {}: {}", location, message);
-        error!("This is a bug in the server!");
+        tracing::error!("Panic occurred at {}: {}", location, message);
+        tracing::error!("This is a bug in the server!");
     }));
 
     LoggerGuard {
