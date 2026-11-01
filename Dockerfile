@@ -55,20 +55,30 @@ COPY central ./central
 COPY Cargo.toml ./
 RUN cargo zigbuild --release --target $(cat /target.txt) --features docker
 
-## debian runtime ##
-FROM debian:trixie-slim AS runtime-debian
+## debian runtime base ##
+FROM debian:trixie-slim AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder-glibc /app/target/*/release/central /argon-server
-COPY --from=builder-glibc /app/target/*/release/node /argon-node
-
 WORKDIR /app
+
+ENV INSIDE_DOCKER=1
+
+## central runtime ##
+FROM runtime-base AS runtime-central
+
+COPY --from=builder-glibc /app/target/*/release/central /argon-server
 COPY ./central/assets /app/assets
 
 EXPOSE 8000/tcp
 EXPOSE 8001/tcp
 
-ENV INSIDE_DOCKER=1
 ENTRYPOINT ["/argon-server"]
+
+## node runtime ##
+FROM runtime-base AS runtime-node
+
+COPY --from=builder-glibc /app/target/*/release/node /argon-node
+
+ENTRYPOINT ["/argon-node"]

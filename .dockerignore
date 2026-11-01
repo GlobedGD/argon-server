@@ -1,0 +1,16 @@
+target/
+.git/
+.github/
+.vscode/
+docs/
+
+# local configs and secrets
+config.toml
+.env
+central/certs/
+central/db.sqlite*
+central/dashboard/
+
+# logs
+*.log
+logs/
