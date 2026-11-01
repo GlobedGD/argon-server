@@ -13,7 +13,7 @@ use crate::{
         error::Error as DiscordError,
     },
     routes::{
-        api::{ApiError, ApiResult},
+        api::{ApiError, ApiResult, error::ErrorBody},
         util::{
             extractors::{ExtractAccManagementToken, ExtractAccessToken},
             responders::{Either, NoCache},
@@ -22,13 +22,25 @@ use crate::{
     user::UserManager,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordLinkStateResponse {
     pub linked: bool,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    pub user: Option<DiscordUserDataFull>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = DiscordUserDataFull)]
+    pub discord_user: Option<DiscordUserDataFull>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v2/account/discord",
+    tag = "discord",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, body = DiscordLinkStateResponse),
+        (status = "4XX", body = ErrorBody),
+        (status = "5XX", body = ErrorBody),
+    ),
+)]
 pub async fn get_link_state(
     State(user_manager): State<Arc<UserManager>>,
     ExtractAccessToken { claims }: ExtractAccessToken,
@@ -37,11 +49,11 @@ pub async fn get_link_state(
 
     Ok(Json(DiscordLinkStateResponse {
         linked: user.is_some(),
-        user,
+        discord_user: user,
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::IntoParams)]
 pub struct LinkQuery {
     return_to: Option<String>,
 }
@@ -50,6 +62,18 @@ fn is_safe_redirect(url: &str) -> bool {
     url.starts_with('/') && !url.starts_with("//") && !url.starts_with("/\\")
 }
 
+#[utoipa::path(
+    post,
+    path = "/v2/account/discord/link",
+    tag = "discord",
+    security(("bearer_auth" = [])),
+    params(LinkQuery),
+    responses(
+        (status = 302, description = "Redirect to the Discord authorization page"),
+        (status = "4XX", body = ErrorBody),
+        (status = "5XX", body = ErrorBody),
+    ),
+)]
 pub async fn link(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
@@ -65,6 +89,18 @@ pub async fn link(
     Ok(NoCache(Redirect::to(&redirect_url)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/v2/account/discord/sync",
+    tag = "discord",
+    security(("bearer_auth" = [])),
+    params(LinkQuery),
+    responses(
+        (status = 302, description = "Redirect to the Discord authorization page"),
+        (status = "4XX", body = ErrorBody),
+        (status = "5XX", body = ErrorBody),
+    ),
+)]
 pub async fn sync(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
@@ -79,6 +115,17 @@ pub async fn sync(
     Ok(NoCache(Redirect::to(&redirect_url)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/v2/account/discord",
+    tag = "discord",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200),
+        (status = "4XX", body = ErrorBody),
+        (status = "5XX", body = ErrorBody),
+    ),
+)]
 pub async fn unlink(
     State(user_manager): State<Arc<UserManager>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,

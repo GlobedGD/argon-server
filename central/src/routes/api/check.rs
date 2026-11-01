@@ -6,23 +6,45 @@ use shared::message::GDAccountData;
 
 use crate::{discord::client::DiscordUserData, routes::util::extractors::ApiKeyRateLimit, user::UserManager};
 
-use super::ApiResult;
+use super::{ApiResult, error::ErrorBody};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct CheckData {
+    /// User's access token that should be validated
     token: String,
+    /// Whether to also return the user's Discord account, if one is linked.
     #[serde(default)]
     include_discord: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct CheckResponse {
     pub valid: bool,
-    #[serde(flatten)]
+    /// Only present when `valid` is `true`, the data of the GD account that the token belongs to.
+    /// This is not guaranteed to be 100% up to date, but it is the best available data we have.
+    /// This can be used to derive the user's username without needing to make a request to GD servers.
     pub account_data: Option<GDAccountData>,
+    /// Linked Discord account, only present if requested and linked.
     pub discord_user: Option<DiscordUserData>,
 }
 
+/// Validates an access token and optionally returns the account and Discord data it belongs to
+///
+/// This requires no authentication, but has rate limits based on your IP address.
+/// An API key allows you to get a custom, higher rate limit.
+#[utoipa::path(
+    post,
+    path = "/v2/token/validate",
+    tag = "token",
+    security((), ("api_key" = [])),
+    request_body = CheckData,
+    responses(
+        (status = 200, body = CheckResponse),
+        (status = 401, body = ErrorBody, description = "The provided API key is invalid. Note: this concerns specifically the API key in authorization header, not the access token being verified."),
+        (status = 429, body = ErrorBody, description = "Rate limited"),
+        (status = 500, body = ErrorBody),
+    ),
+)]
 pub async fn check(
     State(user_manager): State<Arc<UserManager>>,
     ApiKeyRateLimit: ApiKeyRateLimit,

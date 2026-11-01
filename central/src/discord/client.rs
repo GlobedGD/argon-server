@@ -28,14 +28,14 @@ pub struct DiscordClient {
     link_attempts: DashMap<u64, LinkAttempt>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserData {
     pub id: i64,
     pub username: String,
     pub avatar_url: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserDataFull {
     pub id: i64,
     pub username: String,

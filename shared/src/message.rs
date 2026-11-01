@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::resource::ResourceKey;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GDAccountData {
     pub account_id: i32,
     pub user_id: i32,

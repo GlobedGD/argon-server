@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 use shared::resource::ResourceType;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeType {
+    /// Post a comment on the level
     #[default]
     Comment,
+    /// Set a value in the custom field in the profile
     ProfileField,
+    /// Like ProfileField but for /v1/ users, never to be used directly
     LegacyProfileField,
 }
 
@@ -30,7 +33,7 @@ impl From<ChallengeType> for ResourceType {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct ChallengeData {
     pub r#type: ChallengeType,
     /// ID of the target bot account / uploaded level for submitting challenge result

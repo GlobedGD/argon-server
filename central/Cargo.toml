@@ -1,10 +1,10 @@
 [package]
 name = "central"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["openapi"] }
 migration = { path = "./migration" }
 anyhow = "1.0.104"
 axum = { version = "0.8.9", features = ["ws", "macros"] }
@@ -46,6 +46,9 @@ askama = { version = "0.16.1", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["catch-panic", "fs"] }
 moka = { version = "0.12.16", features = ["future", "sync"] }
 tower-cookies = { version = "0.11.0", features = ["signed"] }
+utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
+utoipa-axum = "0.3.0"
+utoipa-swagger-ui = { version = "10.0.2", features = ["axum", "vendored"] }
 
 [features]
 docker = ["shared/docker"]

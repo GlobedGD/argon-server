@@ -1,7 +1,9 @@
 use axum::{
     Router,
-    routing::{delete, get, post},
+    routing::{get, post},
 };
+use utoipa::openapi::OpenApi;
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{config::AppConfig, routes::util::rate_limited, state::AppState};
 
@@ -9,39 +11,52 @@ mod account;
 mod check;
 mod discord;
 mod error;
+pub mod openapi;
 mod status;
 
 pub type ApiError = error::Error;
 pub type ApiResult<T> = Result<T, ApiError>;
 
-pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
-    let account_router = Router::new()
-        .route("/v2/account/login", post(account::login))
-        .route("/v2/account/login/verify", post(account::verify))
-        .route("/v2/account/verify", post(account::verify)) // TODO: remove this on release
-        .route("/v2/account/refresh", post(account::refresh))
-        .route("/v2/account/webtoken", post(account::generate_web_token));
+fn account_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(account::login))
+        .routes(routes!(account::verify))
+        .routes(routes!(account::refresh))
+        .routes(routes!(account::generate_web_token))
+}
 
-    let mut router = Router::new()
-        // account
-        .merge(rate_limited(account_router, state.clone(), 45, 10))
-        // tokan validation (note: no rate limit, as already done by the extractor there)
-        .route("/v2/token/validate", post(check::check))
-        // misc
-        .route("/v2/status", get(status::status));
+fn discord_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(discord::get_link_state))
+        .routes(routes!(discord::unlink))
+        .routes(routes!(discord::link))
+        .routes(routes!(discord::sync))
+        // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
+        .route("/oauth/discord/callback", get(discord::link_callback))
+}
+
+pub fn router(state: &AppState, config: &AppConfig) -> (Router<AppState>, OpenApi) {
+    let (account_router, account_doc) = account_routes().split_for_parts();
+
+    let (misc_router, misc_doc) = OpenApiRouter::new()
+        // token validation (no rate limit, as already done by the extractor there)
+        .routes(routes!(check::check))
+        .routes(routes!(status::status))
+        .split_for_parts();
+
+    let mut router =
+        Router::new().merge(rate_limited(account_router, state.clone(), 45, 10)).merge(misc_router);
+
+    let mut doc = account_doc;
+    doc.merge(misc_doc);
 
     // conditionally enable discord endpoints
     if config.discord.enabled {
-        let discord_router = Router::new()
-            .route("/v2/account/discord", get(discord::get_link_state))
-            .route("/v2/account/discord/link", post(discord::link))
-            .route("/v2/account/discord", delete(discord::unlink))
-            .route("/v2/account/discord/sync", post(discord::sync))
-            // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
-            .route("/oauth/discord/callback", get(discord::link_callback));
+        let (discord_router, discord_doc) = discord_routes().split_for_parts();
 
         router = router.merge(rate_limited(discord_router, state.clone(), 45, 10));
+        doc.merge(discord_doc);
     }
 
-    router
+    (router, doc)
 }

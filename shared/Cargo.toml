@@ -9,6 +9,7 @@ qunet = { git = "https://github.com/dankmeme01/qunet", rev = "v1.2.0", default-f
     "quic",
 ] }
 serde = { version = "1.0.229", features = ["derive"] }
+utoipa = { version = "6.0.0", optional = true }
 validator = { version = "0.21.0", features = ["derive"] }
 tracing = "0.1.44"
 tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
@@ -18,3 +19,4 @@ strum = { version = "0.28.0", features = ["derive"] }
 [features]
 client = ["qunet/client"]
 docker = []
+openapi = ["dep:utoipa"]

@@ -4,12 +4,24 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
     challenge::ChallengeError,
     user::{TokenValidationError, UserManagerError},
 };
+
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ErrorBody {
+    pub error: String,
+    /// Code of the error that's expected to be stable, unlike `error`
+    pub code: String,
+    /// How many seconds until the request should be retried, present in 429 responses
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(ignore)]
+    pub retry_after: Option<f64>,
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -98,14 +110,14 @@ impl From<UserManagerError> for Error {
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
-        let mut body = serde_json::json!({
-            "error": self.to_string(),
-            "code": self.error_code(),
-        });
-
-        if let Error::RateLimited { until } = &self {
-            body["retry_after"] = serde_json::json!(until.duration_since(Instant::now()).as_secs_f64());
-        }
+        let body = ErrorBody {
+            retry_after: match &self {
+                Error::RateLimited { until } => Some(until.duration_since(Instant::now()).as_secs_f64()),
+                _ => None,
+            },
+            code: self.error_code().to_owned(),
+            error: self.to_string(),
+        };
 
         (self.status_code(), axum::Json(body)).into_response()
     }

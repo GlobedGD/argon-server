@@ -42,8 +42,11 @@ async fn main() -> anyhow::Result<()> {
 
     maybe_cli(&config, &state).await?;
 
-    let mut app =
-        Router::new().merge(routes::api::router(&state, &config)).merge(routes::web::router(&state, &config));
+    let (api_router, api_doc) = routes::api::router(&state, &config);
+    let mut app = Router::new()
+        .merge(api_router)
+        .merge(routes::api::openapi::router(api_doc))
+        .merge(routes::web::router(&state, &config));
 
     // enable legacy routes, if enabled in config
     if config.legacy.enabled {

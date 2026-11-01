@@ -6,9 +6,9 @@ use serde::Serialize;
 
 use crate::{routes::util::responders::Cache, state::AppState};
 
-use super::ApiResult;
+use super::{ApiResult, error::ErrorBody};
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, utoipa::ToSchema)]
 pub struct NodeInfo {
     id: u64,
     success_rate_1m: f64,
@@ -16,8 +16,9 @@ pub struct NodeInfo {
     challenges_verified: u32,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, utoipa::ToSchema)]
 pub struct StatusResponse {
+    /// `ok` if all nodes are healthy, `degraded` otherwise
     status: String,
     nodes: Vec<NodeInfo>,
 }
@@ -42,6 +43,16 @@ fn get_cached_response() -> Option<StatusResponse> {
     None
 }
 
+/// Checks whether the server is up and returns the state of all nodes
+#[utoipa::path(
+    get,
+    path = "/v2/status",
+    tag = "misc",
+    responses(
+        (status = 200, body = StatusResponse),
+        (status = 500, body = ErrorBody),
+    ),
+)]
 pub async fn status(State(state): State<AppState>) -> ApiResult<Cache<Json<StatusResponse>>> {
     if let Some(cached) = get_cached_response() {
         return Ok(Cache::new(CACHE_DURATION, Json(cached)));
