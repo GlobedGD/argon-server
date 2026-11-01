@@ -39,7 +39,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/", get(get_dashboard))
         .route("/login", get(get_login))
         // rate limit /login
-        .merge(rate_limited(Router::new().route("/login", post(post_login)), state.clone(), 3, 1))
+        .merge(rate_limited(Router::new().route("/login", post(post_login)), state.clone(), 5, 1))
         .route("/logout", post(post_logout))
         .route("/setup", get(setup).post(post_setup))
         .route("/password", get(get_change_password).post(change_password))

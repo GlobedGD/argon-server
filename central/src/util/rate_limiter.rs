@@ -1,7 +1,7 @@
 use std::{
     hash::Hash,
     num::NonZeroU32,
-    sync::{Arc, atomic::AtomicU64},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -17,8 +17,6 @@ pub struct RateLimiter<K: Hash + Eq> {
 
     replenish_1_per: Duration,
     max_burst: NonZeroU32,
-
-    next_cleanup: AtomicU64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -38,7 +36,6 @@ impl<K: Hash + Eq + Send + Sync + 'static> RateLimiter<K> {
 
             replenish_1_per: Duration::from_secs(1),
             max_burst: NonZeroU32::new(1).unwrap(),
-            next_cleanup: AtomicU64::new(0),
         }
     }
 

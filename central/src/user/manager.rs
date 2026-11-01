@@ -7,11 +7,12 @@ use chrono::Utc;
 use dashmap::DashMap;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use shared::message::GDAccountData;
+use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
     db::{
-        Database, Result,
+        Database,
         entity::{discord_user, user},
         repository::{DiscordUserRepository, UserRepository, UserSessionRepository},
     },
@@ -45,6 +46,29 @@ pub struct RefreshedTokenPair {
     pub access_token: AccessToken,
     pub access_token_valid_until: u64,
 }
+
+#[derive(Debug, Error)]
+pub enum UserManagerError {
+    #[error("database error: {0}")]
+    Database(sea_orm::DbErr),
+    #[error("discord error: {0}")]
+    Discord(#[from] DiscordError),
+    #[error("user does not have advanced auth enabled")]
+    AdvancedAuthNotEnabled,
+    #[error("user not found")]
+    UserNotFound,
+}
+
+impl From<sea_orm::DbErr> for UserManagerError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        match e {
+            sea_orm::DbErr::RecordNotFound(_) => Self::UserNotFound,
+            _ => Self::Database(e),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, UserManagerError>;
 
 impl UserManager {
     pub fn new(
@@ -140,22 +164,32 @@ impl UserManager {
         user: user::Model,
         account_data: &GDAccountData,
     ) -> Result<RefreshedTokenPair> {
+        let user = self.increment_epoch_and_update(user, Some(account_data)).await?;
+
+        // generate pair
+        Ok(self.generate_new_tokens(account_data, user.token_epoch as u64))
+    }
+
+    async fn increment_epoch_and_update(
+        &self,
+        user: user::Model,
+        account_data: Option<&GDAccountData>,
+    ) -> Result<user::Model> {
         // increment the epoch
-        let new_epoch = user.token_epoch as u32 + 1;
+        let new_epoch = user.token_epoch as u64 + 1;
 
         // set the epoch and other fields and save to database
         let mut model = user.into_active_model();
         model.token_epoch = Set(new_epoch as i64);
-        model.gd_user_id = Set(Some(account_data.user_id as i64));
-        model.username = Set(Some(account_data.username.clone()));
+        if let Some(account_data) = account_data {
+            model.gd_user_id = Set(Some(account_data.user_id as i64));
+            model.username = Set(Some(account_data.username.clone()));
+        }
 
-        self.user_repository.update(model).await?;
-
-        // generate pair
-        Ok(self.generate_new_tokens(account_data, new_epoch))
+        Ok(self.user_repository.update(model).await?)
     }
 
-    fn generate_new_tokens(&self, account_data: &GDAccountData, epoch: u32) -> RefreshedTokenPair {
+    fn generate_new_tokens(&self, account_data: &GDAccountData, epoch: u64) -> RefreshedTokenPair {
         let (refresh, refresh_exp) = self.token_issuer.generate_refresh_token(account_data, epoch);
         let (access, access_exp) = self.token_issuer.generate_access_token(account_data);
 
@@ -196,7 +230,7 @@ impl UserManager {
         if claims.has_scope(Scope::Refresh)
             && let Some(user) = self.user_repository.get_user(claims.account_id()).await?
             && user.advanced_auth
-            && user.token_epoch as u32 != claims.epoch()
+            && user.token_epoch as u64 != claims.epoch()
         {
             return Err(TokenValidationError::RefreshTokenExpired);
         }
@@ -242,6 +276,31 @@ impl UserManager {
         self.user_repository.upsert_all(model.into_active_model()).await?;
         Ok(())
     }
+
+    pub async fn enable_advanced_auth(&self, account_id: i32) -> Result<()> {
+        self.user_repository.update_advanced_auth(account_id, true).await?;
+        self.reset_tokens_and_sessions_for(account_id).await?;
+
+        Ok(())
+    }
+
+    /// Rotates the refresh token epoch and deletes all web sessions for the given user. Fails if advanced auth is not enabled for them.
+    pub async fn reset_tokens_and_sessions_for(&self, account_id: i32) -> Result<()> {
+        let Some(user) = self.user_repository.get_user(account_id).await? else {
+            return Err(UserManagerError::UserNotFound);
+        };
+
+        if !user.advanced_auth {
+            return Err(UserManagerError::AdvancedAuthNotEnabled);
+        }
+
+        self.increment_epoch_and_update(user, None).await?;
+        self.session_repo.delete_all_for_account(account_id).await?;
+
+        Ok(())
+    }
+
+    //
 
     pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {
         Ok(self.get_discord_data_ext(account_id).await?.map(DiscordUserData::from))

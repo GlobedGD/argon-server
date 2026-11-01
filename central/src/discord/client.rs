@@ -156,7 +156,7 @@ impl DiscordClient {
             ("code", code),
         ];
 
-        let r = self.post_form::<Response, _>("oauth/token", &payload, None).await?;
+        let r = self.post_form::<Response, _>("oauth2/token", &payload, None).await?;
         Ok(r.access_token)
     }
 

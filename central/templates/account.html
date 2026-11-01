@@ -37,7 +37,8 @@
     </div>
 
     <div class="row-actions">
-        <form method="POST" action="/account/discord/sync" data-confirm="Sync your Discord username and avatar?">
+        <form method="POST" target="_blank" action="/account/discord/sync"
+            data-confirm="Sync your Discord username and avatar?">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="secondary outline" type="submit">Sync now</button>
         </form>
@@ -50,7 +51,7 @@
     {% else %}
     <p>Your Discord account is not linked.</p>
 
-    <form method="POST" action="/account/discord/link">
+    <form method="POST" action="/account/discord/link" target="_blank">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">Link Discord</button>
     </form>

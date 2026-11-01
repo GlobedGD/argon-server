@@ -116,6 +116,25 @@ pub fn init(config: &LoggingConfig) -> LoggerGuard {
         None
     };
 
+    // install panic guard
+    #[cfg(not(debug_assertions))]
+    std::panic::set_hook(Box::new(|info| {
+        let location = info
+            .location()
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let message = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("unknown panic");
+
+        error!("Panic occurred at {}: {}", location, message);
+        error!("This is a bug in the server!");
+    }));
+
     LoggerGuard {
         _file: file_guard,
         _stdout: stdout_guard,

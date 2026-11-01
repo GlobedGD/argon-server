@@ -12,7 +12,7 @@ use tower_sessions::Session;
 
 use crate::{
     db::repository::USER_SESSION_DATA_KEY,
-    discord::client::DiscordUserDataFull,
+    discord::client::{DiscordClient, DiscordUserDataFull, OauthFlowType},
     routes::web::{
         Html,
         csrf::{csrf_token, verify_csrf_token},
@@ -79,38 +79,74 @@ pub struct ActionData {
 }
 
 pub async fn enable_advanced_auth(
-    UserSession { session, .. }: UserSession,
+    UserSession { session, user }: UserSession,
+    State(user_manager): State<Arc<UserManager>>,
     Form(data): Form<ActionData>,
 ) -> WebResult<Redirect> {
-    todo!()
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    user_manager.enable_advanced_auth(user.account_id).await?;
+
+    Ok(Redirect::to("/account"))
 }
 
 pub async fn rotate_advanced_auth(
-    UserSession { session, .. }: UserSession,
+    UserSession { session, user }: UserSession,
+    State(user_manager): State<Arc<UserManager>>,
     Form(data): Form<ActionData>,
 ) -> WebResult<Redirect> {
-    todo!()
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    user_manager.reset_tokens_and_sessions_for(user.account_id).await?;
+
+    Ok(Redirect::to("/account"))
 }
 
 pub async fn link_discord(
-    UserSession { session, .. }: UserSession,
+    UserSession { session, user }: UserSession,
+    State(discord_client): State<Arc<DiscordClient>>,
     Form(data): Form<ActionData>,
 ) -> WebResult<Redirect> {
-    todo!()
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    let redirect_url = discord_client.begin_oauth_flow(
+        user.account_id,
+        OauthFlowType::Link,
+        Some("/account/link-successful".to_owned()),
+    );
+
+    Ok(Redirect::to(&redirect_url))
 }
 
 pub async fn unlink_discord(
-    UserSession { session, .. }: UserSession,
+    UserSession { session, user }: UserSession,
+    State(user_manager): State<Arc<UserManager>>,
     Form(data): Form<ActionData>,
 ) -> WebResult<Redirect> {
-    todo!()
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    let unlinked = user_manager.unlink_discord_user(user.account_id).await?;
+    if unlinked {
+        Ok(Redirect::to("/account"))
+    } else {
+        redirect_with_flash(&session, "/account", Flash::error("Not linked to a Discord account")).await
+    }
 }
 
 pub async fn sync_discord(
-    UserSession { session, .. }: UserSession,
+    UserSession { session, user }: UserSession,
+    State(discord_client): State<Arc<DiscordClient>>,
     Form(data): Form<ActionData>,
 ) -> WebResult<Redirect> {
-    todo!()
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    let redirect_url = discord_client.begin_oauth_flow(
+        user.account_id,
+        OauthFlowType::Sync,
+        Some("/account/sync-successful".to_owned()),
+    );
+
+    Ok(Redirect::to(&redirect_url))
 }
 
 #[derive(Deserialize)]
@@ -159,4 +195,12 @@ pub async fn logout(session: Session, Form(data): Form<LogoutData>) -> WebResult
 
     session.flush().await?;
     Ok(Redirect::to("/login"))
+}
+
+#[derive(Template)]
+#[template(path = "link_successful.html")]
+pub struct SuccessfulLinkTemplate {}
+
+pub async fn link_successful() -> Html<SuccessfulLinkTemplate> {
+    Html(SuccessfulLinkTemplate {})
 }

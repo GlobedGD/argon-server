@@ -79,9 +79,9 @@ impl UserSessionRepository {
         Ok(r.rows_affected)
     }
 
-    pub async fn delete_all_for_account(&self, account_id: i64) -> Result<u64> {
+    pub async fn delete_all_for_account(&self, account_id: i32) -> Result<u64> {
         let r = UserSession::delete_many()
-            .filter(user_session::Column::AccountId.eq(account_id))
+            .filter(user_session::Column::AccountId.eq(account_id as i64))
             .exec(&self.db)
             .await?;
 

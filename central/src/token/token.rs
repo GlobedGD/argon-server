@@ -48,7 +48,7 @@ pub struct TokenClaims {
     /// Unix timestamp of issued at time
     pub iat: u64,
     /// Epoch of the token, or 0 for tokens without an epoch
-    epoch: u32,
+    epoch: u64,
     /// Comma separated list of scopes (see `Scope` enum)
     scope: String,
     /// Account ID of the user
@@ -94,7 +94,7 @@ impl TokenBuilder {
         self
     }
 
-    pub fn epoch(mut self, epoch: u32) -> Self {
+    pub fn epoch(mut self, epoch: u64) -> Self {
         self.claims.epoch = epoch;
         self
     }
@@ -159,7 +159,7 @@ impl TokenClaims {
         }
     }
 
-    pub fn epoch(&self) -> u32 {
+    pub fn epoch(&self) -> u64 {
         self.epoch
     }
 }

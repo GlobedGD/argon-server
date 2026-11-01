@@ -49,8 +49,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/validation/check-data-many", post(validation::check_data_many));
 
     Router::new()
-        .merge(rate_limited(challenge_router, state.clone(), 10, 2))
-        .merge(rate_limited(challenge_poll_router, state.clone(), 45, 3))
-        .merge(rate_limited(validation_router, state.clone(), 10, 5))
+        .merge(rate_limited(challenge_router, state.clone(), 15, 2))
+        .merge(rate_limited(challenge_poll_router, state.clone(), 45, 5))
+        .merge(rate_limited(validation_router, state.clone(), 20, 5))
         .route("/status", get(status::status))
 }

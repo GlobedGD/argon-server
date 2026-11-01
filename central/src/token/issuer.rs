@@ -28,7 +28,7 @@ impl TokenIssuer {
         }
     }
 
-    pub fn generate_refresh_token(&self, account_data: &GDAccountData, epoch: u32) -> (RefreshToken, u64) {
+    pub fn generate_refresh_token(&self, account_data: &GDAccountData, epoch: u64) -> (RefreshToken, u64) {
         let claims = TokenBuilder::new()
             .account_data(account_data)
             .epoch(epoch)

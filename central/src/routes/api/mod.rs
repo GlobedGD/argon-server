@@ -24,7 +24,7 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
 
     let mut router = Router::new()
         // account
-        .merge(rate_limited(account_router, state.clone(), 15, 3))
+        .merge(rate_limited(account_router, state.clone(), 45, 10))
         // tokan validation (note: no rate limit, as already done by the extractor there)
         .route("/v2/token/validate", post(check::check))
         // misc
@@ -40,7 +40,7 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
             // keep the callback outside of /v2/ so it doesn't need to be updated whenever /v3/ is out
             .route("/oauth/discord/callback", get(discord::link_callback));
 
-        router = router.merge(rate_limited(discord_router, state.clone(), 15, 3));
+        router = router.merge(rate_limited(discord_router, state.clone(), 45, 10));
     }
 
     router

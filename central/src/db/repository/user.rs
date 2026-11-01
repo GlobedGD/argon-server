@@ -6,8 +6,8 @@ use crate::{
     state::AppState,
 };
 use axum::extract::FromRef;
-use migration::OnConflict;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Iterable};
+use migration::{Expr, OnConflict};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Iterable, QueryFilter};
 
 #[derive(Clone)]
 pub struct UserRepository {
@@ -46,6 +46,20 @@ impl UserRepository {
 
     pub async fn upsert_all(&self, user: user::ActiveModel) -> Result<user::Model> {
         self.upsert(user, user::Column::iter().collect::<Vec<_>>()).await
+    }
+
+    pub async fn update_advanced_auth(&self, account_id: i32, advanced_auth: bool) -> Result<user::Model> {
+        let mut results = User::update_many()
+            .col_expr(user::Column::AdvancedAuth, Expr::value(advanced_auth))
+            .filter(user::Column::Id.eq(account_id as i64))
+            .exec_with_returning(&self.db)
+            .await?;
+
+        if let Some(model) = results.pop() {
+            Ok(model)
+        } else {
+            Err(sea_orm::DbErr::RecordNotFound(format!("User with account_id {} not found", account_id)))
+        }
     }
 }
 

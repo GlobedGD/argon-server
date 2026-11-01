@@ -43,7 +43,7 @@ async-trait = "0.1.92"
 tower-sessions-core = "0.15.0"
 time = "0.3.55"
 askama = { version = "0.16.1", features = ["full"] }
-tower-http = { version = "0.7.1", features = ["fs"] }
+tower-http = { version = "0.7.1", features = ["catch-panic", "fs"] }
 moka = { version = "0.12.16", features = ["future", "sync"] }
 tower-cookies = { version = "0.11.0", features = ["signed"] }
 

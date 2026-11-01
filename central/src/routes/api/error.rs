@@ -6,7 +6,10 @@ use axum::{
 };
 use thiserror::Error;
 
-use crate::{challenge::ChallengeError, user::TokenValidationError};
+use crate::{
+    challenge::ChallengeError,
+    user::{TokenValidationError, UserManagerError},
+};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -38,6 +41,8 @@ pub enum Error {
     Forbidden,
     #[error("bad redirect URL")]
     BadRedirectUrl,
+    #[error("advanced auth is not enabled")]
+    AdvancedAuthNotEnabled,
 }
 
 impl Error {
@@ -56,6 +61,7 @@ impl Error {
             Error::InvalidCredentials => "invalid_credentials",
             Error::Forbidden => "forbidden",
             Error::BadRedirectUrl => "bad_redirect_url",
+            Error::AdvancedAuthNotEnabled => "advanced_auth_not_enabled",
         }
     }
 
@@ -74,6 +80,18 @@ impl Error {
             Error::InvalidCredentials => StatusCode::UNAUTHORIZED,
             Error::Forbidden => StatusCode::FORBIDDEN,
             Error::BadRedirectUrl => StatusCode::BAD_REQUEST,
+            Error::AdvancedAuthNotEnabled => StatusCode::FORBIDDEN,
+        }
+    }
+}
+
+impl From<UserManagerError> for Error {
+    fn from(value: UserManagerError) -> Self {
+        match value {
+            UserManagerError::UserNotFound => Error::NotFound,
+            UserManagerError::Database(e) => Error::Database(e),
+            UserManagerError::Discord(e) => Error::Discord(e),
+            UserManagerError::AdvancedAuthNotEnabled => Error::AdvancedAuthNotEnabled,
         }
     }
 }
