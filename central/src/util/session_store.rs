@@ -2,6 +2,7 @@ use std::{fmt::Debug, time::Duration};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use time::OffsetDateTime;
+use tower_cookies::cookie::SameSite;
 use tower_sessions::{
     Expiry, SessionManagerLayer, SessionStore,
     session::{Id, Record},
@@ -37,6 +38,8 @@ where
             .with_expiry(Expiry::OnInactivity(expiry.try_into().unwrap()))
             // insecure in debug
             .with_secure(!cfg!(debug_assertions))
+            // Lax so discord callback stays working
+            .with_same_site(SameSite::Lax)
     }
 }
 

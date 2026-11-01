@@ -109,11 +109,8 @@ pub async fn link_discord(
 ) -> WebResult<Redirect> {
     verify_csrf_token(&session, &data.csrf_token).await?;
 
-    let redirect_url = discord_client.begin_oauth_flow(
-        user.account_id,
-        OauthFlowType::Link,
-        Some("/account/link-successful".to_owned()),
-    );
+    let redirect_url =
+        discord_client.begin_oauth_flow(user.account_id, OauthFlowType::Link, Some("/account".to_owned()));
 
     Ok(Redirect::to(&redirect_url))
 }
@@ -140,11 +137,8 @@ pub async fn sync_discord(
 ) -> WebResult<Redirect> {
     verify_csrf_token(&session, &data.csrf_token).await?;
 
-    let redirect_url = discord_client.begin_oauth_flow(
-        user.account_id,
-        OauthFlowType::Sync,
-        Some("/account/sync-successful".to_owned()),
-    );
+    let redirect_url =
+        discord_client.begin_oauth_flow(user.account_id, OauthFlowType::Sync, Some("/account".to_owned()));
 
     Ok(Redirect::to(&redirect_url))
 }
@@ -195,12 +189,4 @@ pub async fn logout(session: Session, Form(data): Form<LogoutData>) -> WebResult
 
     session.flush().await?;
     Ok(Redirect::to("/login"))
-}
-
-#[derive(Template)]
-#[template(path = "link_successful.html")]
-pub struct SuccessfulLinkTemplate {}
-
-pub async fn link_successful() -> Html<SuccessfulLinkTemplate> {
-    Html(SuccessfulLinkTemplate {})
 }
