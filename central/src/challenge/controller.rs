@@ -26,7 +26,7 @@ use tracing::{error, info, warn};
 
 const CHALLENGE_TIMEOUT: Duration = Duration::from_secs(30);
 const CHALLENGE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(45);
-const MAX_PENDING_CHALLENGES: usize = 1024;
+const MAX_PENDING_CHALLENGES: usize = 2048;
 
 struct PendingChallenge {
     answer: u32,
@@ -92,7 +92,7 @@ impl ChallengeController {
         };
 
         let mut rate_limiter = RateLimiter::new(Duration::from_mins(15), 16384);
-        rate_limiter.set_replenish_1_per(Duration::from_secs(10));
+        rate_limiter.set_replenish_1_per(Duration::from_secs(15));
         rate_limiter.set_max_burst(NonZeroU32::new(2).unwrap());
 
         Self {
@@ -108,7 +108,6 @@ impl ChallengeController {
         let cutoff = now - CHALLENGE_CLEANUP_TIMEOUT;
 
         self.pending_challenges.retain(|_, c| c.started_at > cutoff);
-        self.rate_limiter.run_cleanup();
     }
 
     pub fn node_manager(&self) -> &Arc<NodeManager> {
@@ -125,18 +124,17 @@ impl ChallengeController {
         challenge_type: ChallengeType,
         ip_addr: IpAddr,
     ) -> Result<ChallengeData, ChallengeError> {
+        match self.rate_limiter.check(ip_addr) {
+            RateLimitOutcome::Allowed => {}
+            RateLimitOutcome::RateLimited { .. } => return Err(ChallengeError::RateLimited),
+        }
+
         if self.pending_challenges.len() >= MAX_PENDING_CHALLENGES {
             return Err(ChallengeError::TooManyChallengesInProgress);
         }
 
         if !self.node_manager.any_nodes_up() {
             return Err(ChallengeError::NoAvailableResource);
-        }
-
-        match self.rate_limiter.check(ip_addr) {
-            RateLimitOutcome::Allowed => {}
-            RateLimitOutcome::RateLimited { .. } => return Err(ChallengeError::RateLimited),
-            RateLimitOutcome::TooManyLimiters => return Err(ChallengeError::TooManyChallengesInProgress),
         }
 
         let is_legacy = challenge_type == ChallengeType::LegacyProfileField;

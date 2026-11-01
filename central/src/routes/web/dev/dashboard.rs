@@ -9,6 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
+use tower_cookies::Cookies;
 use tower_sessions::Session;
 use tracing::error;
 use uuid::Uuid;
@@ -20,18 +21,25 @@ use super::{
 use crate::{
     db::repository::DEV_SESSION_ID_KEY,
     developer::{DevApiKey, DevError, Developer, DeveloperManager, LoginError},
-    routes::web::{
-        Html,
-        csrf::{csrf_token, rotate_csrf_token, verify_csrf_token},
-        flash::{Flash, redirect_with_flash, take_flash},
+    routes::{
+        util::rate_limited,
+        web::{
+            Html,
+            csrf::{csrf_token, rotate_csrf_token, verify_csrf_token},
+            dev::error::WebError,
+            flash::{Flash, redirect_with_flash, take_flash},
+        },
     },
     state::AppState,
+    util::CsrfCookieManager,
 };
 
-pub fn router() -> Router<AppState> {
+pub fn router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/", get(get_dashboard))
-        .route("/login", get(get_login).post(post_login))
+        .route("/login", get(get_login))
+        // rate limit /login
+        .merge(rate_limited(Router::new().route("/login", post(post_login)), state.clone(), 3, 1))
         .route("/logout", post(post_logout))
         .route("/setup", get(setup).post(post_setup))
         .route("/password", get(get_change_password).post(change_password))
@@ -128,13 +136,17 @@ pub struct LoginTemplate {
     error: Option<String>,
 }
 
-pub async fn get_login(session: Session) -> WebResult<Response> {
+pub async fn get_login(
+    session: Session,
+    cookies: Cookies,
+    State(csrf): State<Arc<CsrfCookieManager>>,
+) -> WebResult<Response> {
     if session.get::<i64>(DEV_SESSION_ID_KEY).await?.is_some() {
         return Ok(Redirect::to("/dev").into_response());
     }
 
-    // set csrf token
-    let csrf_token = csrf_token(&session).await?;
+    // set secure csrf token
+    let csrf_token = csrf.token(&cookies);
 
     Ok(Html(LoginTemplate {
         csrf_token,
@@ -153,9 +165,13 @@ pub struct LoginData {
 pub async fn post_login(
     session: Session,
     State(dev_manager): State<Arc<DeveloperManager>>,
+    State(csrf): State<Arc<CsrfCookieManager>>,
+    cookies: Cookies,
     Form(data): Form<LoginData>,
 ) -> WebResult<Response> {
-    verify_csrf_token(&session, &data.csrf_token).await?;
+    if !csrf.verify(&cookies, &data.csrf_token) {
+        return Err(WebError::Csrf);
+    }
 
     match dev_manager.handle_login(&data.username, &data.password).await {
         Ok(dev) => {

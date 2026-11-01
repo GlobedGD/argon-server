@@ -10,9 +10,9 @@ use governor::{DefaultDirectRateLimiter, Quota};
 use crate::routes::api::ApiError;
 
 // Avoid storing stale limiters forever
-const LIMITER_RETAIN_TIME: Duration = Duration::from_hours(24);
+const LIMITER_RETAIN_TIME: Duration = Duration::from_mins(30);
 // Avoid allowing the map to grow boundless
-const MAX_LIMITERS: usize = 2048;
+const MAX_LIMITERS: usize = 4096;
 
 struct Entry {
     limiter: DefaultDirectRateLimiter,

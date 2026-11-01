@@ -92,4 +92,14 @@ impl ArgonNodeMessage {
     pub fn encode(&self) -> Result<Vec<u8>, postcard::Error> {
         postcard::to_allocvec(self)
     }
+
+    pub fn is_safe_unauthenticated(&self) -> bool {
+        matches!(
+            self,
+            ArgonNodeMessage::Ping { .. }
+                | ArgonNodeMessage::Pong { .. }
+                | ArgonNodeMessage::Login { .. }
+                | ArgonNodeMessage::LoginSuccess { .. }
+        )
+    }
 }

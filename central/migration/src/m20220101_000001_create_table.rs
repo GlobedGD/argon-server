@@ -13,8 +13,8 @@ impl MigrationTrait for Migration {
                     .col(integer_uniq("id").primary_key())
                     .col(integer_null("gd_user_id"))
                     .col(string_null("username"))
-                    .col(boolean("advanced_auth"))
-                    .col(integer("token_epoch"))
+                    .col(boolean("advanced_auth").default(false))
+                    .col(integer("token_epoch").default(0))
                     .col(integer_null("discord_id").unique_key())
                     .to_owned(),
             )

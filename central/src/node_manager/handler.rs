@@ -80,6 +80,11 @@ impl NodeMessageHandler {
     }
 
     async fn handle_message(&self, msg: ArgonNodeMessage, client: &Arc<ClientState<Self>>) {
+        if !client.authorized() && !msg.is_safe_unauthenticated() {
+            warn!("unauthorized message from node {}: {:?}", client.address, msg);
+            return;
+        }
+
         match msg {
             ArgonNodeMessage::Ping { time } => {
                 self.send_message(client, &ArgonNodeMessage::Pong { time });

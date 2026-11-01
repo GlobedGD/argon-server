@@ -1,26 +1,31 @@
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use shared::message::UserChallengeOutcome;
+
+const BUCKET_SECS: u64 = 10;
+const BUCKETS: usize = 180;
+
+#[derive(Clone, Copy, Default)]
+struct Bucket {
+    id: u64,
+    success: u32,
+    failure: u32,
+}
 
 /// Tracks performance of "something". What exactly is up to you.
 #[derive(Clone)]
 pub struct PerformanceTracker {
-    entries: VecDeque<(bool, Instant)>,
-    last_cleanup: Instant,
+    epoch: Instant,
+    buckets: Box<[Bucket; BUCKETS]>,
+    poor_since: Option<Instant>,
 }
-
-const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
-const CLEANUP_WINDOW: Duration = Duration::from_mins(30);
-const MAX_ENTRIES: usize = 16384;
 
 impl PerformanceTracker {
     pub fn new() -> Self {
         Self {
-            entries: VecDeque::new(),
-            last_cleanup: Instant::now(),
+            epoch: Instant::now(),
+            buckets: Box::new([Bucket::default(); BUCKETS]),
+            poor_since: None,
         }
     }
 
@@ -32,46 +37,69 @@ impl PerformanceTracker {
     }
 
     pub fn log_success(&mut self) {
-        self.entries.push_back((true, Instant::now()));
-        self.maybe_cleanup();
+        self.log_inner(true);
     }
 
     pub fn log_failure(&mut self) {
-        self.entries.push_back((false, Instant::now()));
-        self.maybe_cleanup();
+        self.log_inner(false);
     }
 
-    fn maybe_cleanup(&mut self) {
-        if self.last_cleanup.elapsed() < CLEANUP_INTERVAL || self.entries.is_empty() {
-            return;
+    fn log_inner(&mut self, success: bool) {
+        let bucket_id = self.epoch.elapsed().as_secs() / BUCKET_SECS;
+        let bucket_index = (bucket_id as usize) % BUCKETS;
+
+        let bucket = &mut self.buckets[bucket_index];
+        if bucket.id != bucket_id {
+            // reset this bucket
+            *bucket = Bucket {
+                id: bucket_id,
+                success: 0,
+                failure: 0,
+            };
         }
 
-        let now = Instant::now();
-        self.last_cleanup = now;
-        let cutoff = now - CLEANUP_WINDOW;
-
-        // erase everything that's too old or exceeds the max entries limit
-        let first_kept = self.entries.iter().position(|&(_, t)| t >= cutoff).unwrap_or(self.entries.len());
-        let to_keep = (self.entries.len() - first_kept).min(MAX_ENTRIES);
-        let actual_first_kept = self.entries.len() - to_keep;
-
-        self.entries.drain(..actual_first_kept);
+        if success {
+            bucket.success += 1;
+        } else {
+            bucket.failure += 1;
+        }
     }
 
     pub fn success_rate(&self, window: Duration) -> f64 {
-        let cutoff = Instant::now() - window;
+        let current_bucket_id = self.epoch.elapsed().as_secs() / BUCKET_SECS;
+        let span = window.as_secs() / BUCKET_SECS;
+        let start_bucket_id = current_bucket_id.saturating_sub(span);
 
-        // find cutoff index via binary search
-        let first_matching = self.entries.binary_search_by_key(&cutoff, |&(_, t)| t).unwrap_or_else(|x| x);
-        let (successes, total) = self
-            .entries
-            .range(first_matching..)
-            .fold((0usize, 0usize), |(successes, total), &(s, _)| (successes + s as usize, total + 1));
+        let mut successes = 0u64;
+        let mut total = 0u64;
+
+        for id in start_bucket_id..=current_bucket_id {
+            let bucket = &self.buckets[(id as usize) % BUCKETS];
+            if bucket.id != id {
+                continue;
+            }
+
+            successes += bucket.success as u64;
+            total += (bucket.success + bucket.failure) as u64;
+        }
 
         if total == 0 {
             1.0
         } else {
             successes as f64 / total as f64
+        }
+    }
+
+    pub fn update_health(&mut self, now: Instant, sustain: Duration) -> bool {
+        let healthy = self.success_rate(Duration::from_mins(5)) >= 0.75
+            && self.success_rate(Duration::from_mins(1)) >= 0.5;
+
+        if healthy {
+            self.poor_since = None;
+            false
+        } else {
+            let since = *self.poor_since.get_or_insert(now);
+            now.duration_since(since) >= sustain
         }
     }
 }

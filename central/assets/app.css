@@ -139,6 +139,25 @@ button.toast-close:hover {
     padding: .5rem;
 }
 
+.discord-profile {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.discord-profile .avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.discord-details p {
+    margin: 0;
+}
+
 button.danger {
     color: var(--err);
     border-color: var(--err);

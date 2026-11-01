@@ -32,7 +32,7 @@ impl TokenIssuer {
         let claims = TokenBuilder::new()
             .account_data(account_data)
             .epoch(epoch)
-            .scopes([Scope::Refresh, Scope::Access, Scope::AccountManagement])
+            .scopes([Scope::Refresh, Scope::AccountManagement])
             .expiry(self.refresh_expiry)
             .build();
 
@@ -68,6 +68,14 @@ impl TokenIssuer {
     }
 
     pub fn validate_token(&self, token: &str) -> Result<TokenClaims, jsonwebtoken::errors::Error> {
-        jsonwebtoken::decode(token, &self.dec_key, &Validation::default()).map(|data| data.claims)
+        jsonwebtoken::decode(
+            token,
+            &self.dec_key,
+            &Validation {
+                leeway: 5,
+                ..Default::default()
+            },
+        )
+        .map(|data| data.claims)
     }
 }

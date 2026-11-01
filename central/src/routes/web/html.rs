@@ -11,7 +11,8 @@ impl<T: Template> IntoResponse for Html<T> {
     fn into_response(self) -> Response {
         match self.0.render() {
             Ok(body) => {
-                let headers = [(header::CONTENT_TYPE, "text/html; charset=utf-8")];
+                let headers =
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")];
                 (headers, body).into_response()
             }
 

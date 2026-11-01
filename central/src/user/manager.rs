@@ -275,6 +275,7 @@ impl UserManager {
     }
 
     pub async fn link_discord_account(&self, account_id: i32, data: DiscordUserData) -> ApiResult<()> {
+        let discord_id = data.id;
         let mut user = match self.user_repository.get_user(account_id).await? {
             Some(user) => user.into_active_model(),
             None => user::ActiveModel {
@@ -287,13 +288,17 @@ impl UserManager {
             return Err(ApiError::Discord(DiscordError::DiscordAlreadyLinked));
         }
 
-        user.discord_id = Set(Some(data.account_id));
+        if self.discord_user_repository.get_user(discord_id).await?.is_some() {
+            return Err(ApiError::Discord(DiscordError::DiscordLinkedToAnotherAccount));
+        }
+
+        user.discord_id = Set(Some(discord_id));
         self.user_repository.upsert(user, [user::Column::DiscordId]).await?;
 
         let duser = discord_user::ActiveModel {
-            discord_id: Set(data.account_id),
+            discord_id: Set(discord_id),
             avatar_url: Set(data.avatar_url),
-            user_id: Set(data.account_id),
+            user_id: Set(account_id as i64),
             username: Set(data.username),
             last_sync_time: Set(Utc::now().naive_utc()),
         };
@@ -303,8 +308,11 @@ impl UserManager {
     }
 
     /// Refreshes fields such as username and avatar URL in the given discord user
-    pub async fn sync_discord_account(&self, data: DiscordUserData) -> ApiResult<()> {
-        self.discord_user_repository.sync_details(data).await?;
+    pub async fn sync_discord_account(&self, account_id: i32, data: DiscordUserData) -> ApiResult<()> {
+        if !self.discord_user_repository.sync_details(account_id, data).await? {
+            return Err(ApiError::Discord(DiscordError::DiscordLinkedToAnotherAccount));
+        }
+
         Ok(())
     }
 

@@ -30,14 +30,14 @@ pub struct DiscordClient {
 
 #[derive(Serialize)]
 pub struct DiscordUserData {
-    pub account_id: i64,
+    pub id: i64,
     pub username: String,
     pub avatar_url: String,
 }
 
 #[derive(Serialize)]
 pub struct DiscordUserDataFull {
-    pub account_id: i64,
+    pub id: i64,
     pub username: String,
     pub avatar_url: String,
     pub last_sync_time: chrono::NaiveDateTime,
@@ -46,7 +46,7 @@ pub struct DiscordUserDataFull {
 impl From<discord_user::Model> for DiscordUserDataFull {
     fn from(model: discord_user::Model) -> Self {
         Self {
-            account_id: model.user_id,
+            id: model.discord_id,
             username: model.username,
             avatar_url: model.avatar_url,
             last_sync_time: model.last_sync_time,
@@ -57,7 +57,7 @@ impl From<discord_user::Model> for DiscordUserDataFull {
 impl From<DiscordUserDataFull> for DiscordUserData {
     fn from(full: DiscordUserDataFull) -> Self {
         Self {
-            account_id: full.account_id,
+            id: full.id,
             username: full.username,
             avatar_url: full.avatar_url,
         }
@@ -81,7 +81,10 @@ struct ApiUserObject {
 
 impl DiscordClient {
     pub fn new(config: &AppConfig) -> Self {
-        let client = reqwest::ClientBuilder::new().build().expect("failed to build http client");
+        let client = reqwest::ClientBuilder::new()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .expect("failed to build http client");
 
         Self {
             client,
@@ -161,7 +164,7 @@ impl DiscordClient {
         let user = self.get::<ApiUserObject>("users/@me", format!("Bearer {access_token}")).await?;
 
         Ok(DiscordUserData {
-            account_id: user.id,
+            id: user.id,
             username: user.username,
             avatar_url: self.avatar_url(user.id, user.avatar.as_deref()),
         })

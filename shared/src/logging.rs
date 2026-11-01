@@ -73,7 +73,7 @@ pub fn init(config: &LoggingConfig) -> LoggerGuard {
 
     // create stdout layer
     let (nb_stdout, stdout_guard) = NonBlockingBuilder::default()
-        .lossy(false)
+        .lossy(true)
         .thread_name("Stdout writer thread")
         .buffered_lines_limit(1024)
         .finish(std::io::stdout());
@@ -86,7 +86,11 @@ pub fn init(config: &LoggingConfig) -> LoggerGuard {
     let file_guard = if config.file_enabled {
         // create appender
         let appender = RollingFileAppender::builder()
-            .rotation(if config.rolling { Rotation::DAILY } else { Rotation::NEVER })
+            .rotation(if config.rolling {
+                Rotation::DAILY
+            } else {
+                Rotation::NEVER
+            })
             .filename_prefix(&config.log_filename)
             .max_log_files(config.retention_days as usize)
             .build(&directory)

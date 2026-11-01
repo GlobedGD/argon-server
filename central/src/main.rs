@@ -3,7 +3,7 @@
 
 use std::{env, net::SocketAddr};
 
-use axum::Router;
+use axum::{Router, extract::DefaultBodyLimit};
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
         app = app.nest("/v1/", routes::api_legacy::router(&state))
     }
 
-    let app = app.with_state(state.clone());
+    let app = app.layer(DefaultBodyLimit::max(128 * 1024)).with_state(state.clone());
 
     // Run node manager
     tokio::spawn(state.node_manager.clone().run());
@@ -85,5 +85,5 @@ async fn maybe_cli(_config: &AppConfig, state: &AppState) -> anyhow::Result<()> 
         }
     }
 
-    std::process::exit(1);
+    std::process::exit(0);
 }

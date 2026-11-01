@@ -1,4 +1,9 @@
-use sea_orm::ConnectOptions;
+use std::time::Duration;
+
+use sea_orm::{
+    ConnectOptions,
+    sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous},
+};
 
 use crate::{
     config::AppConfig,
@@ -27,6 +32,12 @@ impl Database {
     pub async fn new(config: &AppConfig) -> anyhow::Result<Self> {
         let mut opts = ConnectOptions::new(&config.database.url);
         opts.sqlx_logging_level(log::LevelFilter::Debug);
+        opts.max_connections(8);
+        opts.map_sqlx_sqlite_opts(|o| {
+            o.journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Normal)
+                .busy_timeout(Duration::from_secs(10))
+        });
 
         let db = sea_orm::Database::connect(opts).await?;
 

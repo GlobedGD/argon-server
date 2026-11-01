@@ -1,6 +1,8 @@
 use std::{net::IpAddr, num::NonZeroU32, time::Duration};
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use constant_time_eq::constant_time_eq;
+use dashmap::DashMap;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 
 use crate::{
@@ -28,16 +30,24 @@ pub struct DeveloperManager {
     limiter: DevRateLimiter,
     ip_limiter_token_interval: Duration,
     ip_max_burst: NonZeroU32,
+
+    api_keys: DashMap<i64, dev_api_key::Model>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ApiKeyClaims {
     pub id: i64,
+    pub owner: i64,
     pub secret: String,
 }
 
 impl DeveloperManager {
-    pub fn new(database: &Database, config: &AppConfig) -> Self {
+    pub async fn new(database: &Database, config: &AppConfig) -> Self {
+        let api_keys = DashMap::new();
+        for model in database.dev_api_key_repository.get_all().await.expect("failed to fetch all API keys") {
+            api_keys.insert(model.id, model);
+        }
+
         Self {
             account_repo: database.dev_account_repository.clone(),
             api_key_repo: database.dev_api_key_repository.clone(),
@@ -49,6 +59,8 @@ impl DeveloperManager {
                 .div_f64(config.developers.request_rate_limit as f64),
             ip_max_burst: NonZeroU32::new(config.developers.request_max_burst)
                 .expect("invalid request_max_burst value, must be above 0"),
+
+            api_keys,
         }
     }
 
@@ -60,15 +72,23 @@ impl DeveloperManager {
     }
 
     pub async fn validate_api_key(&self, key: &str) -> Result<ApiKeyClaims, ApiKeyError> {
-        // TODO: some sort of cache so this doesn't hit the db every time
         let (id, secret) = self.decode_key(key)?;
-        let key =
-            self.api_key_repo.get_key_by_id_and_secret(id, secret).await?.ok_or(ApiKeyError::InvalidKey)?;
+        self.get_api_key(id, secret).await
+    }
 
-        Ok(ApiKeyClaims {
-            id: key.id,
-            secret: key.secret,
-        })
+    async fn get_api_key(&self, id: i64, secret: &str) -> Result<ApiKeyClaims, ApiKeyError> {
+        let model =
+            self.api_keys.get(&id).filter(|c| constant_time_eq(c.secret.as_bytes(), secret.as_bytes()));
+
+        if let Some(model) = model {
+            Ok(ApiKeyClaims {
+                id: model.id,
+                owner: model.owner,
+                secret: model.secret.clone(),
+            })
+        } else {
+            Err(ApiKeyError::InvalidKey)
+        }
     }
 
     fn encode_key(&self, key_id: i64, secret: &str) -> String {
@@ -88,10 +108,10 @@ impl DeveloperManager {
             match claims {
                 Some(claims) => {
                     let key = self
-                        .api_key_repo
-                        .get_key(claims.id)
-                        .await?
-                        .ok_or(ApiError::ApiKeyDecode(ApiKeyError::InvalidKey))?;
+                        .api_keys
+                        .get(&claims.id)
+                        .ok_or(ApiError::ApiKeyDecode(ApiKeyError::InvalidKey))?
+                        .clone();
 
                     let replenish_per = Duration::from_nanos(key.request_reload_ns as u64);
                     self.limiter.insert_key_id(claims.id, replenish_per, self.ip_max_burst)?;
@@ -121,7 +141,8 @@ impl DeveloperManager {
     /// Handles a login and returns the developer struct if credentials are good
     pub async fn handle_login(&self, username: &str, password: &str) -> Result<Developer, LoginError> {
         let dev = self.account_repo.get_by_username(username).await?.ok_or(LoginError::InvalidCredentials)?;
-        if !self.verify_password(password, &dev.password_hash) {
+
+        if !Self::verify_password_async(password, &dev.password_hash).await {
             return Err(LoginError::InvalidCredentials);
         }
 
@@ -135,7 +156,7 @@ impl DeveloperManager {
         new_password: &str,
     ) -> Result<(), DevError> {
         let dev = self.account_repo.get_account(id).await?.ok_or(LoginError::InvalidCredentials)?;
-        if !self.verify_password(old_password, &dev.password_hash) {
+        if !Self::verify_password_async(old_password, &dev.password_hash).await {
             Err(LoginError::InvalidCredentials)?;
         }
 
@@ -152,13 +173,16 @@ impl DeveloperManager {
         )
     }
 
-    fn verify_password(&self, password: &str, hash: &str) -> bool {
+    async fn verify_password_async(password: &str, hash: &str) -> bool {
         let argon = Self::argon();
         let Ok(parsed_hash) = PasswordHash::new(hash) else {
             return false;
         };
 
-        argon.verify_password(password.as_bytes(), &parsed_hash).is_ok()
+        let password = password.to_owned();
+        tokio::task::spawn_blocking(move || argon.verify_password(password.as_bytes(), &parsed_hash).is_ok())
+            .await
+            .unwrap_or(false)
     }
 
     fn hash_password(&self, password: &str) -> Result<String, DevError> {
@@ -215,6 +239,7 @@ impl DeveloperManager {
 
     pub async fn delete_developer(&self, id: i64) -> Result<(), DevError> {
         self.api_key_repo.delete_by_developer_id(id).await?;
+        self.api_keys.retain(|_, v| v.owner != id);
 
         if !self.account_repo.delete(id).await? {
             return Err(DevError::NotFound);
@@ -273,6 +298,8 @@ impl DeveloperManager {
         };
 
         let key = self.api_key_repo.save(model).await?;
+        self.api_keys.insert(key.id, key.clone());
+
         Ok(key.into())
     }
 
@@ -289,6 +316,8 @@ impl DeveloperManager {
         key.request_reload_ns = Set(request_reload_ns.max(1) as i64);
 
         let key = self.api_key_repo.update(key).await?;
+        self.api_keys.insert(key.id, key.clone());
+
         Ok(key.into())
     }
 
@@ -296,6 +325,8 @@ impl DeveloperManager {
         if !self.api_key_repo.delete(key_id).await? {
             return Err(DevError::NotFound);
         }
+
+        self.api_keys.remove(&key_id);
 
         Ok(())
     }
@@ -311,17 +342,25 @@ impl DeveloperManager {
             .into_active_model();
 
         key.secret = Set(new_secret.to_owned());
-        self.api_key_repo.update(key).await?;
+        let new_model = self.api_key_repo.update(key).await?;
+        self.api_keys.insert(key_id, new_model);
+
         Ok(self.encode_key(key_id, new_secret))
     }
 
     pub async fn get_developer_keys(&self, dev_id: i64) -> Result<Vec<DevApiKey>, DevError> {
-        let keys = self.api_key_repo.get_all_by_developer_id(dev_id).await?;
+        let keys = self
+            .api_keys
+            .iter()
+            .filter(|kv| kv.value().owner == dev_id)
+            .map(|kv| kv.value().clone())
+            .collect::<Vec<_>>();
+
         Ok(keys.into_iter().map(DevApiKey::from_model).collect())
     }
 
     pub async fn get_developer_key(&self, dev_id: i64, key_id: i64) -> Result<Option<DevApiKey>, DevError> {
-        let key = self.api_key_repo.get_key(key_id).await?.filter(|k| k.owner == dev_id);
+        let key = self.api_keys.get(&key_id).filter(|k| k.owner == dev_id).map(|k| k.value().clone());
         Ok(key.map(DevApiKey::from_model))
     }
 }

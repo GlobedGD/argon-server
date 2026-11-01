@@ -46,24 +46,37 @@ pub struct LinkQuery {
     return_to: Option<String>,
 }
 
+fn is_safe_redirect(url: &str) -> bool {
+    url.starts_with('/') && !url.starts_with("//") && !url.starts_with("/\\")
+}
+
 pub async fn link(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
-) -> NoCache<Redirect> {
+) -> ApiResult<NoCache<Redirect>> {
+    if query.return_to.as_deref().is_some_and(|url| !is_safe_redirect(url)) {
+        return Err(ApiError::BadRedirectUrl);
+    }
+
     let redirect_url =
         discord_client.begin_oauth_flow(claims.account_id(), OauthFlowType::Link, query.return_to);
-    NoCache(Redirect::to(&redirect_url))
+
+    Ok(NoCache(Redirect::to(&redirect_url)))
 }
 
 pub async fn sync(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
-) -> NoCache<Redirect> {
+) -> ApiResult<NoCache<Redirect>> {
+    if query.return_to.as_deref().is_some_and(|url| !is_safe_redirect(url)) {
+        return Err(ApiError::BadRedirectUrl);
+    }
+
     let redirect_url =
         discord_client.begin_oauth_flow(claims.account_id(), OauthFlowType::Sync, query.return_to);
-    NoCache(Redirect::to(&redirect_url))
+    Ok(NoCache(Redirect::to(&redirect_url)))
 }
 
 pub async fn unlink(
@@ -123,7 +136,7 @@ async fn callback_followup(
 
         OauthFlowType::Sync => {
             // refresh some fields using the fetched data
-            user_manager.sync_discord_account(discord_data).await?;
+            user_manager.sync_discord_account(account_id, discord_data).await?;
         }
     }
     Ok(())

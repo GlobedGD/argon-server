@@ -1,13 +1,14 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{Json, extract::State};
+use parking_lot::Mutex;
 use serde::Serialize;
 
 use crate::{routes::util::responders::Cache, state::AppState};
 
 use super::ApiResult;
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct NodeInfo {
     id: u64,
     success_rate_1m: f64,
@@ -15,13 +16,37 @@ pub struct NodeInfo {
     challenges_verified: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct StatusResponse {
     status: String,
     nodes: Vec<NodeInfo>,
 }
 
+#[derive(Clone)]
+struct CachedResponse {
+    response: StatusResponse,
+    cached_at: Instant,
+}
+
+const CACHE_DURATION: Duration = Duration::from_secs(30);
+static CACHED_RESPONSE: Mutex<Option<CachedResponse>> = Mutex::new(None);
+
+fn get_cached_response() -> Option<StatusResponse> {
+    let cached = CACHED_RESPONSE.lock();
+    if let Some(cached_response) = &*cached
+        && cached_response.cached_at.elapsed() < CACHE_DURATION
+    {
+        return Some(cached_response.response.clone());
+    }
+
+    None
+}
+
 pub async fn status(State(state): State<AppState>) -> ApiResult<Cache<Json<StatusResponse>>> {
+    if let Some(cached) = get_cached_response() {
+        return Ok(Cache::new(CACHE_DURATION, Json(cached)));
+    }
+
     let nodes = state
         .node_manager
         .get_nodes()
@@ -41,11 +66,14 @@ pub async fn status(State(state): State<AppState>) -> ApiResult<Cache<Json<Statu
         "degraded"
     };
 
-    Ok(Cache::new(
-        Duration::from_secs(30),
-        Json(StatusResponse {
-            status: status.to_owned(),
-            nodes,
-        }),
-    ))
+    let response = StatusResponse {
+        status: status.to_owned(),
+        nodes: nodes.clone(),
+    };
+    CACHED_RESPONSE.lock().replace(CachedResponse {
+        response: response.clone(),
+        cached_at: Instant::now(),
+    });
+
+    Ok(Cache::new(CACHE_DURATION, Json(response)))
 }

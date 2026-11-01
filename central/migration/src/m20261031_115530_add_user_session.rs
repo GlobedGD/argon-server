@@ -23,11 +23,22 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_user_session_expires_at")
+                    .table("user_session")
+                    .col("expires_at")
+                    .to_owned(),
+            )
+            .await?;
+
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager.drop_table(Table::drop().table("user_session").to_owned()).await?;
+        manager.drop_index(Index::drop().name("idx_user_session_expires_at").to_owned()).await?;
 
         Ok(())
     }

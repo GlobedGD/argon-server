@@ -6,6 +6,7 @@ use tokio::time::interval;
 use crate::{
     challenge::ChallengeController, config::AppConfig, db::Database, developer::DeveloperManager,
     discord::client::DiscordClient, node_manager::NodeManager, token::TokenIssuer, user::UserManager,
+    util::CsrfCookieManager,
 };
 
 #[derive(Clone, FromRef)]
@@ -16,6 +17,7 @@ pub struct AppState {
     pub user_manager: Arc<UserManager>,
     pub developer_manager: Arc<DeveloperManager>,
     pub trusted_proxies: Arc<[IpAddr]>,
+    pub csrf: Arc<CsrfCookieManager>,
 }
 
 impl FromRef<AppState> for Arc<DiscordClient> {
@@ -40,8 +42,9 @@ impl AppState {
             None
         };
         let user_manager = Arc::new(UserManager::new(&database, discord_client.clone(), token_issuer));
-        let developer_manager = Arc::new(DeveloperManager::new(&database, config));
+        let developer_manager = Arc::new(DeveloperManager::new(&database, config).await);
         let trusted_proxies = Arc::from(config.http.trusted_proxies.clone());
+        let csrf = Arc::new(CsrfCookieManager::new(Duration::from_hours(1)));
 
         Self {
             challenge_controller: Arc::new(ChallengeController::new(config, node_manager.clone())),
@@ -50,6 +53,7 @@ impl AppState {
             user_manager,
             developer_manager,
             trusted_proxies,
+            csrf,
         }
     }
 

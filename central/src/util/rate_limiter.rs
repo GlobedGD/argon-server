@@ -1,45 +1,44 @@
 use std::{
     hash::Hash,
     num::NonZeroU32,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{Arc, atomic::AtomicU64},
     time::{Duration, Instant},
 };
 
-use dashmap::DashMap;
 use governor::{DefaultDirectRateLimiter, Quota};
+use moka::sync::Cache;
 
 struct Entry {
     limiter: DefaultDirectRateLimiter,
-    last_access: Instant,
 }
 
 pub struct RateLimiter<K: Hash + Eq> {
-    limiters: DashMap<K, Entry>,
-    limiter_count: AtomicUsize,
-    max_retain: Duration,
-    max_entries: usize,
+    limiters: Cache<K, Arc<Entry>>,
 
     replenish_1_per: Duration,
     max_burst: NonZeroU32,
+
+    next_cleanup: AtomicU64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RateLimitOutcome {
     Allowed,
     RateLimited { until: Instant },
-    TooManyLimiters,
 }
 
-impl<K: Hash + Eq> RateLimiter<K> {
+impl<K: Hash + Eq + Send + Sync + 'static> RateLimiter<K> {
     pub fn new(max_retain: Duration, max_entries: usize) -> Self {
         Self {
-            limiters: DashMap::new(),
-            limiter_count: AtomicUsize::new(0),
-            max_retain,
-            max_entries,
+            limiters: Cache::builder()
+                .time_to_live(max_retain)
+                .time_to_idle(Duration::from_mins(5))
+                .max_capacity(max_entries as u64)
+                .build(),
 
             replenish_1_per: Duration::from_secs(1),
             max_burst: NonZeroU32::new(1).unwrap(),
+            next_cleanup: AtomicU64::new(0),
         }
     }
 
@@ -51,45 +50,22 @@ impl<K: Hash + Eq> RateLimiter<K> {
         self.max_burst = max_burst;
     }
 
-    pub fn run_cleanup(&self) {
-        self.limiters.retain(|_, entry| {
-            let keep = entry.last_access.elapsed() < self.max_retain;
-            if !keep {
-                self.limiter_count.fetch_sub(1, Ordering::Relaxed);
-            }
-            keep
-        });
-    }
-
     pub fn check(&self, key: K) -> RateLimitOutcome {
         self.check_ext(key, self.replenish_1_per, self.max_burst)
     }
 
     pub fn check_ext(&self, key: K, replenish_1_per: Duration, max_burst: NonZeroU32) -> RateLimitOutcome {
-        if let Some(mut limiter) = self.limiters.get_mut(&key) {
-            return self.tick(limiter.value_mut());
-        }
+        let entry = self.limiters.entry(key).or_insert_with(|| {
+            let limiter = governor::RateLimiter::direct(
+                Quota::with_period(replenish_1_per).unwrap().allow_burst(max_burst),
+            );
+            Arc::new(Entry { limiter })
+        });
 
-        if self.limiter_count.load(Ordering::Acquire) >= self.max_entries {
-            return RateLimitOutcome::TooManyLimiters;
-        }
-
-        let limiter = governor::RateLimiter::direct(
-            Quota::with_period(replenish_1_per).unwrap().allow_burst(max_burst),
-        );
-        let entry = Entry {
-            limiter,
-            last_access: Instant::now(),
-        };
-        self.limiter_count.fetch_add(1, Ordering::Release);
-        self.limiters.insert(key, entry);
-
-        RateLimitOutcome::Allowed
+        self.tick(entry.value())
     }
 
-    fn tick(&self, entry: &mut Entry) -> RateLimitOutcome {
-        entry.last_access = Instant::now();
-
+    fn tick(&self, entry: &Entry) -> RateLimitOutcome {
         match entry.limiter.check() {
             Ok(()) => RateLimitOutcome::Allowed,
             Err(not_until) => RateLimitOutcome::RateLimited {

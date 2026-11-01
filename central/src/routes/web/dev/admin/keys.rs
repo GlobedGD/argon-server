@@ -167,7 +167,7 @@ fn parse_reload_ns(period: &str, requests: u64) -> Result<u64, WebError> {
     };
 
     let period_ns = Duration::from_secs(period_s).as_nanos() as u64;
-    Ok(period_ns / requests)
+    Ok(period_ns / requests.max(1))
 }
 
 fn generate_secret() -> String {

@@ -1,7 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use parking_lot::Mutex;
@@ -19,7 +19,6 @@ pub struct ArgonNode {
     pub id: u64,
     pub perf_tracker: Mutex<PerformanceTracker>,
 
-    poor_perf_counter: AtomicU32,
     total_challenges_completed: AtomicU32,
 
     queued_challenges: Mutex<Vec<UserChallenge>>,
@@ -36,7 +35,6 @@ impl ArgonNode {
             used_resources: Mutex::new(Vec::new()),
             id: rand::random(),
             perf_tracker: Mutex::new(PerformanceTracker::new()),
-            poor_perf_counter: AtomicU32::new(0),
             total_challenges_completed: AtomicU32::new(0),
             queued_challenges: Mutex::new(Vec::new()),
             queued_should_poll: Mutex::new(Vec::new()),
@@ -57,29 +55,8 @@ impl ArgonNode {
         self.perf_tracker.lock().success_rate(window)
     }
 
-    pub fn inc_poor_perf(&self) {
-        self.poor_perf_counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn dec_poor_perf(&self) {
-        let mut c = self.poor_perf_counter.load(Ordering::Relaxed);
-
-        loop {
-            if c == 0 {
-                break;
-            }
-
-            let new = c - 1;
-
-            match self.poor_perf_counter.compare_exchange(c, new, Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => break,
-                Err(current) => c = current,
-            }
-        }
-    }
-
-    pub fn poor_perf_count(&self) -> u32 {
-        self.poor_perf_counter.load(Ordering::Relaxed)
+    pub fn should_disconnect(&self) -> bool {
+        self.perf_tracker.lock().update_health(Instant::now(), Duration::from_mins(1))
     }
 
     pub fn queue_challenge(&self, resource_key: ResourceKey, account_id: i32, challenge_id: u32) {

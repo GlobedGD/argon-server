@@ -64,7 +64,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder-glibc /app/target/*/release/central /argon-server
 COPY --from=builder-glibc /app/target/*/release/node /argon-node
 
-EXPOSE 4340/tcp
+WORKDIR /app
+COPY ./central/assets /app/assets
+
+EXPOSE 8000/tcp
+EXPOSE 8001/tcp
 
 ENV INSIDE_DOCKER=1
 ENTRYPOINT ["/argon-server"]

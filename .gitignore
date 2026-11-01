@@ -30,3 +30,5 @@ central/dashboard
 central/certs
 config.toml
 .env
+*.sqlite-shm
+*.sqlite-wal

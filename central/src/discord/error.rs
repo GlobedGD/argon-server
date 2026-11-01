@@ -14,6 +14,8 @@ pub enum Error {
     DiscordNotLinked,
     #[error("already linked to a Discord account")]
     DiscordAlreadyLinked,
+    #[error("this Discord account is already linked to another GD account")]
+    DiscordLinkedToAnotherAccount,
 }
 
 impl Error {
@@ -24,6 +26,7 @@ impl Error {
             Error::MalformedCallback => "discord_oauth_malformed_callback",
             Error::DiscordNotLinked => "discord_not_linked",
             Error::DiscordAlreadyLinked => "discord_already_linked",
+            Error::DiscordLinkedToAnotherAccount => "discord_linked_to_another_account",
         }
     }
 
@@ -34,6 +37,7 @@ impl Error {
             Error::MalformedCallback => StatusCode::BAD_REQUEST,
             Error::DiscordNotLinked => StatusCode::NOT_FOUND,
             Error::DiscordAlreadyLinked => StatusCode::BAD_REQUEST,
+            Error::DiscordLinkedToAnotherAccount => StatusCode::BAD_REQUEST,
         }
     }
 }

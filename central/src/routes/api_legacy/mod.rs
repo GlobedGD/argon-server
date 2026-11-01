@@ -34,7 +34,9 @@ impl<T> LegacyApiResponse<T> {
 pub fn router(state: &AppState) -> Router<AppState> {
     let challenge_router = Router::new()
         .route("/challenge/start", post(challenge::start))
-        .route("/challenge/restart", post(challenge::start))
+        .route("/challenge/restart", post(challenge::start));
+
+    let challenge_poll_router = Router::new()
         .route("/challenge/verify", post(challenge::poll))
         .route("/challenge/verifypoll", post(challenge::poll));
 
@@ -47,7 +49,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/validation/check-data-many", post(validation::check_data_many));
 
     Router::new()
-        .merge(rate_limited(challenge_router, state.clone(), 15, 3))
+        .merge(rate_limited(challenge_router, state.clone(), 10, 2))
+        .merge(rate_limited(challenge_poll_router, state.clone(), 45, 3))
         .merge(rate_limited(validation_router, state.clone(), 10, 5))
         .route("/status", get(status::status))
 }

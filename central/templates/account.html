@@ -2,6 +2,92 @@
 {% block title %}Account{% endblock %}
 {% block content %}
 
-<h1>Hi {{ me.username() }}</h1>
+{% include "_flash.html" %}
+
+<header class="page-header">
+    <h1>{{ me.username() }}</h1>
+    <p>
+        <small>
+            GD account ID:
+            {% if let Some(user_id) = me.gd_user_id %}
+            <span title="GD user ID: {{ user_id }}">{{ me.account_id }}</span>
+            {% else %}
+            {{ me.account_id }}
+            {% endif %}
+        </small>
+    </p>
+</header>
+
+<article>
+    <header>
+        <strong>Discord</strong>
+    </header>
+
+    {% if !discord_enabled %}
+    <p>Discord integration is disabled on this server.</p>
+    {% else %}
+    {% if let Some(discord) = discord %}
+    <div class="discord-profile">
+        <img class="avatar" src="{{ discord.avatar_url }}" alt="Discord avatar" width="64" height="64">
+        <div class="discord-details">
+            <p><strong>{{ discord.username }}</strong></p>
+            <p><small>Discord ID: {{ discord.id }}</small></p>
+            <p><small>Last synced: {{ discord.last_sync }} UTC</small></p>
+        </div>
+    </div>
+
+    <div class="row-actions">
+        <form method="POST" action="/account/discord/sync" data-confirm="Sync your Discord username and avatar?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="secondary outline" type="submit">Sync now</button>
+        </form>
+
+        <form method="POST" action="/account/discord/unlink" data-confirm="Unlink your Discord account?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="danger outline" type="submit">Unlink</button>
+        </form>
+    </div>
+    {% else %}
+    <p>Your Discord account is not linked.</p>
+
+    <form method="POST" action="/account/discord/link">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Link Discord</button>
+    </form>
+    {% endif %}
+    {% endif %}
+</article>
+
+<article>
+    <header>
+        <strong>Security</strong>
+    </header>
+
+    {% if me.advanced_auth %}
+    <p>
+        Advanced authentication is <strong>enabled</strong>. Rotating your security token
+        invalidates all existing refresh tokens and logs out every device, including this one.
+    </p>
+
+    <form method="POST" action="/account/advanced-auth/rotate"
+        data-confirm="Rotate your security token? This logs out all devices, including this one.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="danger outline" type="submit">Rotate security token</button>
+    </form>
+    {% else %}
+    <p>
+        Advanced authentication is currently <strong>disabled</strong>.
+        Enabling it may cause delay in logging in, and will prevent old GD versions (before 2.209) from being able to
+        log in with this account.
+        However, if you suspect you are at risk of your account being hijacked, it's recommended to enable this.
+    </p>
+
+    <form method="POST" action="/account/advanced-auth/enable"
+        data-confirm="Enable advanced authentication? You cannot go back to the old behavior later.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Enable advanced authentication</button>
+    </form>
+    {% endif %}
+</article>
 
 {% endblock %}

@@ -20,7 +20,7 @@ pub struct ChallengeStartData {
     user_id: i32,
     username: String,
     force_strong: bool,
-    req_mod: String,
+    req_mod: Option<String>,
     #[serde(default)]
     preferred: String,
 }

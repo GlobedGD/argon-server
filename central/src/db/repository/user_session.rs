@@ -51,12 +51,11 @@ impl UserSessionRepository {
     ) -> Result<user_session::Model> {
         let account_data = data
             .get(USER_SESSION_DATA_KEY)
-            .and_then(|x| serde_json::from_value::<GDAccountData>(x.clone()).ok())
-            .expect("account_data must be set in the user session");
+            .and_then(|x| serde_json::from_value::<GDAccountData>(x.clone()).ok());
 
         let model = user_session::ActiveModel {
             id: Set(uuid),
-            account_id: Set(Some(account_data.account_id as i64)),
+            account_id: Set(account_data.map(|d| d.account_id as i64)),
             data: Set(data),
             expires_at: Set(expires_at),
         };

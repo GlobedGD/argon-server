@@ -1,11 +1,7 @@
-use crate::{
-    db::{
-        Result,
-        entity::{dev_api_key, prelude::*},
-    },
-    state::AppState,
+use crate::db::{
+    Result,
+    entity::{dev_api_key, prelude::*},
 };
-use axum::extract::FromRef;
 use constant_time_eq::constant_time_eq;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
@@ -17,6 +13,10 @@ pub struct DevApiKeyRepository {
 impl DevApiKeyRepository {
     pub fn new(db: DatabaseConnection) -> Self {
         Self { db }
+    }
+
+    pub async fn get_all(&self) -> Result<Vec<dev_api_key::Model>> {
+        DevApiKey::find().all(&self.db).await
     }
 
     pub async fn get_key(&self, id: i64) -> Result<Option<dev_api_key::Model>> {
@@ -61,8 +61,9 @@ impl DevApiKeyRepository {
     }
 }
 
-impl FromRef<AppState> for DevApiKeyRepository {
-    fn from_ref(input: &AppState) -> Self {
-        input.database.dev_api_key_repository.clone()
-    }
-}
+// Note: removed so that routes don't use this directly and use cache in devmanager
+// impl FromRef<AppState> for DevApiKeyRepository {
+//     fn from_ref(input: &AppState) -> Self {
+//         input.database.dev_api_key_repository.clone()
+//     }
+// }

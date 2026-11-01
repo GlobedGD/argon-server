@@ -66,8 +66,8 @@ impl FromRequestParts<AppState> for ApiKeyRateLimit {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        let ExtractApiKey(claims) = ExtractApiKey::from_request_parts(parts, state).await?;
         let VerifiedIpAddr(ip) = VerifiedIpAddr::from_request_parts(parts, state).await?;
+        let ExtractApiKey(claims) = ExtractApiKey::from_request_parts(parts, state).await?;
 
         state.developer_manager.check_rate_limit(claims.as_ref(), ip).await?;
 
@@ -95,5 +95,11 @@ impl FromRequestParts<AppState> for VerifiedIpAddr {
 }
 
 fn find_ip_in_headers(parts: &mut Parts) -> Option<IpAddr> {
-    parts.headers.get("X-Forwarded-For")?.to_str().ok()?.split(',').next()?.trim().parse().ok()
+    if let Some(cf_ip) =
+        parts.headers.get("CF-Connecting-IP").and_then(|h| h.to_str().ok()).and_then(|s| s.parse().ok())
+    {
+        return Some(cf_ip);
+    }
+
+    parts.headers.get("X-Forwarded-For")?.to_str().ok()?.split(',').next_back()?.trim().parse().ok()
 }

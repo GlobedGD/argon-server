@@ -48,14 +48,11 @@ impl DevSessionRepository {
         data: serde_json::Value,
         expires_at: NaiveDateTime,
     ) -> Result<dev_session::Model> {
-        let dev_id = data
-            .get(DEV_SESSION_ID_KEY)
-            .and_then(|x| x.as_i64())
-            .expect("dev_id must be set in the dev session");
+        let dev_id = data.get(DEV_SESSION_ID_KEY).and_then(|x| x.as_i64());
 
         let model = dev_session::ActiveModel {
             id: Set(uuid),
-            account_id: Set(Some(dev_id)),
+            account_id: Set(dev_id),
             data: Set(data),
             expires_at: Set(expires_at),
         };

@@ -37,18 +37,13 @@ impl UserRepository {
         update_columns: impl IntoIterator<Item = user::Column>,
     ) -> Result<user::Model> {
         let res = User::insert(user)
-            .on_conflict(
-                OnConflict::columns([user::Column::Id, user::Column::DiscordId])
-                    .update_columns(update_columns)
-                    .to_owned(),
-            )
+            .on_conflict(OnConflict::column(user::Column::Id).update_columns(update_columns).to_owned())
             .exec_with_returning(&self.db)
             .await?;
 
         Ok(res)
     }
 
-    /// Like upsert but updates all columns
     pub async fn upsert_all(&self, user: user::ActiveModel) -> Result<user::Model> {
         self.upsert(user, user::Column::iter().collect::<Vec<_>>()).await
     }

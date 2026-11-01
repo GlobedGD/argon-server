@@ -36,6 +36,8 @@ pub enum Error {
     InvalidCredentials,
     #[error("access to this resource is forbidden for your account")]
     Forbidden,
+    #[error("bad redirect URL")]
+    BadRedirectUrl,
 }
 
 impl Error {
@@ -53,6 +55,7 @@ impl Error {
             Error::NotFound => "not_found",
             Error::InvalidCredentials => "invalid_credentials",
             Error::Forbidden => "forbidden",
+            Error::BadRedirectUrl => "bad_redirect_url",
         }
     }
 
@@ -70,6 +73,7 @@ impl Error {
             Error::NotFound => StatusCode::NOT_FOUND,
             Error::InvalidCredentials => StatusCode::UNAUTHORIZED,
             Error::Forbidden => StatusCode::FORBIDDEN,
+            Error::BadRedirectUrl => StatusCode::BAD_REQUEST,
         }
     }
 }

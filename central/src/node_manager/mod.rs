@@ -144,61 +144,48 @@ impl NodeManager {
     }
 
     async fn run_processor_loop(self: Arc<NodeManager>) {
-        let mut interval = interval(Duration::from_millis(100));
+        let mut flush_interval = interval(Duration::from_millis(100));
+        let mut health_interval = interval(Duration::from_secs(1));
 
         loop {
-            interval.tick().await;
+            tokio::select! {
+                _ = flush_interval.tick() => {
+                    let nodes = self.nodes.lock().await;
+                    for node in nodes.iter() {
+                        // send all accumulated challenges / cleanups to this node
+                        let challenges = node.get_queued_challenges();
+                        let cleanups = node.get_queued_cleanups();
+                        let should_poll = node.get_queued_should_poll();
 
-            let nodes = self.nodes.lock().await;
-            for node in nodes.iter() {
-                if self.maybe_kill_node(node) {
-                    continue;
+                        if challenges.is_empty() && cleanups.is_empty() && should_poll.is_empty() {
+                            continue;
+                        }
+
+                        self.send_message_to_node(
+                            node,
+                            &ArgonNodeMessage::Challenges {
+                                challenges,
+                                cleanups,
+                                should_poll,
+                            },
+                        );
+                    }
                 }
 
-                // send all accumulated challenges / cleanups to this node
-                let challenges = node.get_queued_challenges();
-                let cleanups = node.get_queued_cleanups();
-                let should_poll = node.get_queued_should_poll();
-
-                if challenges.is_empty() && cleanups.is_empty() && should_poll.is_empty() {
-                    continue;
+                _ = health_interval.tick() => {
+                    let nodes = self.nodes.lock().await;
+                    for node in nodes.iter() {
+                        if node.should_disconnect() {
+                            if let Some(client) = self.client_map.get(&node.id) {
+                                client.disconnect("Disconnecting due to poor verification performance");
+                            } else {
+                                error!("Unable to find node '{}' ({}) in map", node.address, node.id);
+                            }
+                        }
+                    }
                 }
-
-                self.send_message_to_node(
-                    node,
-                    &ArgonNodeMessage::Challenges {
-                        challenges,
-                        cleanups,
-                        should_poll,
-                    },
-                );
-            }
-        }
-    }
-
-    fn maybe_kill_node(&self, node: &Arc<ArgonNode>) -> bool {
-        // check if this node is performing well
-        let success_over_5m = node.success_rate(Duration::from_mins(5));
-        let success_over_1m = node.success_rate(Duration::from_mins(1));
-        let poor_performance = success_over_5m < 0.75 || success_over_1m < 0.5;
-        if poor_performance {
-            node.inc_poor_perf();
-        } else {
-            node.dec_poor_perf();
-        }
-
-        // after ~2 minutes of sustained poor performance, disconnect the node
-        if node.poor_perf_count() > 1200 {
-            let Some(client) = self.client_map.get(&node.id) else {
-                error!("Unable to find node '{}' ({}) in map", node.address, node.id);
-                return true;
             };
-
-            client.disconnect("Disconnecting due to poor verification performance");
-            return true;
         }
-
-        false
     }
 
     fn server(&self) -> ServerHandle<NodeMessageHandler> {

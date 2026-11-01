@@ -12,9 +12,11 @@ use tower_sessions::Session;
 
 use crate::{
     db::repository::USER_SESSION_DATA_KEY,
+    discord::client::DiscordUserDataFull,
     routes::web::{
         Html,
         csrf::{csrf_token, verify_csrf_token},
+        flash::{Flash, redirect_with_flash, take_flash},
         user::{
             error::{WebError, WebResult},
             session::UserSession,
@@ -23,18 +25,92 @@ use crate::{
     user::{User, UserManager},
 };
 
+pub struct DiscordView {
+    pub id: i64,
+    pub username: String,
+    pub avatar_url: String,
+    pub last_sync: String,
+}
+
+impl From<DiscordUserDataFull> for DiscordView {
+    fn from(data: DiscordUserDataFull) -> Self {
+        Self {
+            id: data.id,
+            username: data.username,
+            avatar_url: data.avatar_url,
+            last_sync: data.last_sync_time.format("%Y-%m-%d %H:%M").to_string(),
+        }
+    }
+}
+
 #[derive(Template)]
 #[template(path = "account.html")]
 pub struct AccountTemplate {
     me: User,
     csrf_token: String,
+    flash: Option<Flash>,
+    discord: Option<DiscordView>,
+    discord_enabled: bool,
 }
 
-pub async fn get_account(UserSession { user, session }: UserSession) -> WebResult<Html<AccountTemplate>> {
+pub async fn get_account(
+    UserSession { user, session }: UserSession,
+    State(user_manager): State<Arc<UserManager>>,
+) -> WebResult<Html<AccountTemplate>> {
+    let discord_enabled = user_manager.discord_client().is_some();
+    let discord = if discord_enabled {
+        user_manager.get_discord_data_ext(user.account_id).await?.map(Into::into)
+    } else {
+        None
+    };
+
     Ok(Html(AccountTemplate {
         me: user,
         csrf_token: csrf_token(&session).await?,
+        flash: take_flash(&session).await?,
+        discord,
+        discord_enabled,
     }))
+}
+
+#[derive(Deserialize)]
+pub struct ActionData {
+    csrf_token: String,
+}
+
+pub async fn enable_advanced_auth(
+    UserSession { session, .. }: UserSession,
+    Form(data): Form<ActionData>,
+) -> WebResult<Redirect> {
+    todo!()
+}
+
+pub async fn rotate_advanced_auth(
+    UserSession { session, .. }: UserSession,
+    Form(data): Form<ActionData>,
+) -> WebResult<Redirect> {
+    todo!()
+}
+
+pub async fn link_discord(
+    UserSession { session, .. }: UserSession,
+    Form(data): Form<ActionData>,
+) -> WebResult<Redirect> {
+    todo!()
+}
+
+pub async fn unlink_discord(
+    UserSession { session, .. }: UserSession,
+    Form(data): Form<ActionData>,
+) -> WebResult<Redirect> {
+    todo!()
+}
+
+pub async fn sync_discord(
+    UserSession { session, .. }: UserSession,
+    Form(data): Form<ActionData>,
+) -> WebResult<Redirect> {
+    todo!()
 }
 
 #[derive(Deserialize)]
