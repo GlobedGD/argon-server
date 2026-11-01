@@ -87,7 +87,7 @@ pub async fn enable_advanced_auth(
 
     user_manager.enable_advanced_auth(user.account_id).await?;
 
-    Ok(Redirect::to("/account"))
+    Ok(Redirect::to("/login"))
 }
 
 pub async fn rotate_advanced_auth(
@@ -99,7 +99,7 @@ pub async fn rotate_advanced_auth(
 
     user_manager.reset_tokens_and_sessions_for(user.account_id).await?;
 
-    Ok(Redirect::to("/account"))
+    Ok(Redirect::to("/login"))
 }
 
 pub async fn link_discord(

@@ -84,7 +84,7 @@
     </p>
 
     <form method="POST" action="/account/advanced-auth/enable"
-        data-confirm="Enable advanced authentication? You cannot go back to the old behavior later.">
+        data-confirm="Enable advanced authentication? You cannot go back to the old behavior later. This will also log out all sessions, including this one.">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">Enable advanced authentication</button>
     </form>
