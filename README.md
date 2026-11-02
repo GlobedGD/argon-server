@@ -7,7 +7,7 @@ If you are simply looking to use Argon in your mod, more information on doing th
 ## Building the server
 
 ```bash
-rustup override set nightly # nightly 1.100 or later is required
+rustup override set nightly-2026-10-01 # later nightlies are currently broken in sea-orm
 cargo build # or cargo build --release
 ```
 
@@ -45,4 +45,49 @@ You'll have the following files you need to use later (and a few other, mostly u
 
 ## Configure & run
 
-TODO
+First, let's run the central server with a minimal configuration. Write this to `central/config.toml`:
+```sh
+[node_handler]
+# make this secure, this is used to connect to this server
+secret_key = "secret password"
+# paths to the .crt and .key files we generated earlier
+tls_cert = "certs/server.crt"
+tls_key = "certs/server.key"
+
+[auth]
+# randomly generated 256-bit key, can be generated via `openssl rand -hex 32`
+secret_key = "bf04327e3a0b61d8525a5c6dd5476fe52caaf3c77c3d8550bc95f11a1cf9ebc2"
+```
+
+After that, you can run the server, which will generate the database and start the HTTP server:
+```sh
+cd central
+cargo run
+```
+If no errors are printed to the console, it worked! The server is running and the website should be accessible at http://127.0.0.1:8000
+
+## Connect a node
+
+The Argon backend is split into two parts: the central server (that you just ran), and the node. A single central server never makes any request to GD servers - instead it orchestrates multiple nodes which actually handle the requests. Thus, you need to run at least one node for authentication to work.
+
+Minimal configuration for `node/config.toml`:
+```toml
+[central]
+address = "127.0.0.1:8001"
+# the ca.crt file we saved earlier
+certificate = "certs/ca.crt"
+# the secret_key from the [node_handler] section in the central server configuration
+secret_key = "secret password"
+# required when 'address' is an IP, see the Protocol section
+hostname = "argon.internal"
+```
+
+Run:
+```sh
+cd node
+cargo run
+```
+
+If everything is configured correctly and the central server is running, this should connect to it and authentication should work now.
+
+## Protocol
