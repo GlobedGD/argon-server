@@ -91,3 +91,7 @@ cargo run
 If everything is configured correctly and the central server is running, this should connect to it and authentication should work now.
 
 ## Protocol
+
+The QUIC protocol is used for communication between the central server and nodes, which is secured with TLS but has multiple caveats:
+* For nodes running on separate machine, they must be able to reach the **UDP** port 8001 (or whatever you specified) of the central server, aka the port must be forwarded and allowed in your firewall
+* Since TLS certificates have a domain name, one must be used for connection. When `address` is set to include a domain name instead of an IP address, for example `my.server.com:8001` or `my.server.com`, no separate `hostname` needs to be specified in the config but the TLS certificate must include that domain as the common name. Otherwise, if an IP address is used, the actual hostname used does not matter but it needs to be consistent. The TLS example above uses `argon.internal` as the CN when generating the certs, so the same hostname should be used in node configuration.
