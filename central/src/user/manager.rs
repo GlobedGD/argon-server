@@ -125,13 +125,13 @@ impl UserManager {
                     self.generate_token_with_next_epoch(user, account_data).await
                 } else {
                     // use simple auth
-                    Ok(self.generate_new_tokens(account_data, 0))
+                    Ok(self.generate_new_tokens(account_data, 0, false))
                 }
             }
 
             _ => {
                 // user not in db, use simple auth
-                Ok(self.generate_new_tokens(account_data, 0))
+                Ok(self.generate_new_tokens(account_data, 0, false))
             }
         }
     }
@@ -167,7 +167,7 @@ impl UserManager {
         let user = self.increment_epoch_and_update(user, Some(account_data)).await?;
 
         // generate pair
-        Ok(self.generate_new_tokens(account_data, user.token_epoch as u64))
+        Ok(self.generate_new_tokens(account_data, user.token_epoch as u64, true))
     }
 
     async fn increment_epoch_and_update(
@@ -189,9 +189,14 @@ impl UserManager {
         Ok(self.user_repository.update(model).await?)
     }
 
-    fn generate_new_tokens(&self, account_data: &GDAccountData, epoch: u64) -> RefreshedTokenPair {
+    fn generate_new_tokens(
+        &self,
+        account_data: &GDAccountData,
+        epoch: u64,
+        advanced_auth: bool,
+    ) -> RefreshedTokenPair {
         let (refresh, refresh_exp) = self.token_issuer.generate_refresh_token(account_data, epoch);
-        let (access, access_exp) = self.token_issuer.generate_access_token(account_data);
+        let (access, access_exp) = self.token_issuer.generate_access_token(account_data, advanced_auth);
 
         RefreshedTokenPair {
             refresh_token: refresh,

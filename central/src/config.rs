@@ -146,6 +146,8 @@ pub struct AuthConfig {
     pub refresh_token_expiry: Duration,
     #[serde(with = "humantime_serde", default = "default_access_token_expiry")]
     pub access_token_expiry: Duration,
+    #[serde(with = "humantime_serde", default = "default_access_token_expiry")]
+    pub advanced_auth_token_expiry: Duration,
 }
 
 impl Default for AuthConfig {
@@ -155,6 +157,7 @@ impl Default for AuthConfig {
             secret_key: String::new(),
             refresh_token_expiry: default_refresh_token_expiry(),
             access_token_expiry: default_access_token_expiry(),
+            advanced_auth_token_expiry: default_access_token_expiry(),
         }
     }
 }
@@ -173,7 +176,7 @@ fn default_refresh_token_expiry() -> Duration {
 }
 
 fn default_access_token_expiry() -> Duration {
-    Duration::from_mins(15)
+    Duration::from_mins(30)
 }
 
 #[derive(Debug, Clone, Deserialize, Validate)]

@@ -13,6 +13,7 @@ pub struct TokenIssuer {
     dec_key: DecodingKey,
     refresh_expiry: Duration,
     access_expiry: Duration,
+    advanced_auth_token_expiry: Duration,
     legacy_expiry: Duration,
 }
 
@@ -24,6 +25,7 @@ impl TokenIssuer {
             dec_key: DecodingKey::from_secret(&secret),
             refresh_expiry: config.auth.refresh_token_expiry,
             access_expiry: config.auth.access_token_expiry,
+            advanced_auth_token_expiry: config.auth.advanced_auth_token_expiry,
             legacy_expiry: config.legacy.token_expiry,
         }
     }
@@ -40,11 +42,19 @@ impl TokenIssuer {
         (RefreshToken(token), exp)
     }
 
-    pub fn generate_access_token(&self, account_data: &GDAccountData) -> (AccessToken, u64) {
+    pub fn generate_access_token(
+        &self,
+        account_data: &GDAccountData,
+        advanced_auth: bool,
+    ) -> (AccessToken, u64) {
         let claims = TokenBuilder::new()
             .account_data(account_data)
             .scope(Scope::Access)
-            .expiry(self.access_expiry)
+            .expiry(if advanced_auth {
+                self.advanced_auth_token_expiry
+            } else {
+                self.access_expiry
+            })
             .build();
 
         let (token, exp) = self.generate_jwt(claims);
