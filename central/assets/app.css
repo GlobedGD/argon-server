@@ -43,7 +43,6 @@ header nav form {
 .table-wrap {
     overflow-x: auto;
 }
-
 .toast {
     position: fixed;
     right: 1rem;
@@ -102,8 +101,9 @@ button.toast-close:hover {
 }
 
 .row-actions {
+    width: 1%;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: .5rem;
     align-items: center;
 }
