@@ -91,7 +91,7 @@ impl Client {
                 id: level_id,
                 page: 0,
                 mode: 0,
-                count: 100, // TODO: determine real max count
+                count: 100, // 100 is the max GD server currently allows
                 secret: "Wmfd2893gb7",
             },
         )
