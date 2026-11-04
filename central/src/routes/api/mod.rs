@@ -54,7 +54,7 @@ pub fn router(state: &AppState, config: &AppConfig) -> (Router<AppState>, OpenAp
     if config.discord.enabled {
         let (discord_router, discord_doc) = discord_routes().split_for_parts();
 
-        router = router.merge(rate_limited(discord_router, state.clone(), 45, 10));
+        router = router.merge(rate_limited(discord_router, state.clone(), 60, 10));
         doc.merge(discord_doc);
     }
 

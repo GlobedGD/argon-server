@@ -43,7 +43,7 @@ pub struct DiscordLinkStateResponse {
 )]
 pub async fn get_link_state(
     State(user_manager): State<Arc<UserManager>>,
-    ExtractAccessToken { claims }: ExtractAccessToken,
+    ExtractAccManagementToken { claims }: ExtractAccManagementToken,
 ) -> ApiResult<Json<DiscordLinkStateResponse>> {
     let user = user_manager.get_discord_data_ext(claims.account_id()).await?;
 
@@ -62,6 +62,11 @@ fn is_safe_redirect(url: &str) -> bool {
     url.starts_with('/') && !url.starts_with("//") && !url.starts_with("/\\")
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct Oauth2RedirectResponse {
+    authorize_url: String,
+}
+
 #[utoipa::path(
     post,
     path = "/v2/account/discord/link",
@@ -69,7 +74,7 @@ fn is_safe_redirect(url: &str) -> bool {
     security(("bearer_auth" = [])),
     params(LinkQuery),
     responses(
-        (status = 302, description = "Redirect to the Discord authorization page"),
+        (status = 200, body = Oauth2RedirectResponse),
         (status = "4XX", body = ErrorBody),
         (status = "5XX", body = ErrorBody),
     ),
@@ -78,7 +83,7 @@ pub async fn link(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
-) -> ApiResult<NoCache<Redirect>> {
+) -> ApiResult<NoCache<Json<Oauth2RedirectResponse>>> {
     if query.return_to.as_deref().is_some_and(|url| !is_safe_redirect(url)) {
         return Err(ApiError::BadRedirectUrl);
     }
@@ -86,7 +91,9 @@ pub async fn link(
     let redirect_url =
         discord_client.begin_oauth_flow(claims.account_id(), OauthFlowType::Link, query.return_to);
 
-    Ok(NoCache(Redirect::to(&redirect_url)))
+    Ok(NoCache(Json(Oauth2RedirectResponse {
+        authorize_url: redirect_url,
+    })))
 }
 
 #[utoipa::path(
@@ -96,7 +103,7 @@ pub async fn link(
     security(("bearer_auth" = [])),
     params(LinkQuery),
     responses(
-        (status = 302, description = "Redirect to the Discord authorization page"),
+        (status = 200, body = Oauth2RedirectResponse),
         (status = "4XX", body = ErrorBody),
         (status = "5XX", body = ErrorBody),
     ),
@@ -105,14 +112,17 @@ pub async fn sync(
     State(discord_client): State<Arc<DiscordClient>>,
     ExtractAccManagementToken { claims }: ExtractAccManagementToken,
     Query(query): Query<LinkQuery>,
-) -> ApiResult<NoCache<Redirect>> {
+) -> ApiResult<NoCache<Json<Oauth2RedirectResponse>>> {
     if query.return_to.as_deref().is_some_and(|url| !is_safe_redirect(url)) {
         return Err(ApiError::BadRedirectUrl);
     }
 
     let redirect_url =
         discord_client.begin_oauth_flow(claims.account_id(), OauthFlowType::Sync, query.return_to);
-    Ok(NoCache(Redirect::to(&redirect_url)))
+
+    Ok(NoCache(Json(Oauth2RedirectResponse {
+        authorize_url: redirect_url,
+    })))
 }
 
 #[utoipa::path(
