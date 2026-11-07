@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::{
     challenge::ChallengeError,
+    developer::DevScope,
     user::{TokenValidationError, UserManagerError},
 };
 
@@ -31,6 +32,8 @@ pub enum Error {
     Database(#[from] sea_orm::DbErr),
     #[error("Missing authorization header")]
     MissingAuth,
+    #[error("API key is missing a scope that is required for this endpoint: {0}")]
+    MissingDevScope(DevScope),
     #[error("Malformed authorization header")]
     MalformedAuth,
     #[error("Token validation failed: {0}")]
@@ -65,6 +68,7 @@ impl Error {
             Error::Internal(_) => "internal_error",
             Error::Database(_) => "database_error",
             Error::MissingAuth => "missing_auth",
+            Error::MissingDevScope(_) => "missing_api_key_scope",
             Error::MalformedAuth => "malformed_auth",
             Error::InvalidToken(e) => e.error_code(),
             Error::ApiKeyDecode(_) => "api_key_error",
@@ -85,6 +89,7 @@ impl Error {
             Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::MissingAuth => StatusCode::UNAUTHORIZED,
+            Error::MissingDevScope(_) => StatusCode::FORBIDDEN,
             Error::MalformedAuth => StatusCode::BAD_REQUEST,
             Error::InvalidToken(e) => e.status_code(),
             Error::ApiKeyDecode(e) => e.status_code(),

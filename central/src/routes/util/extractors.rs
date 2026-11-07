@@ -56,7 +56,9 @@ impl<const S: DevScope> FromRequestParts<AppState> for ExtractApiKey<S> {
             None => None,
         };
 
-        let claims = claims.filter(|claims| claims.has_scope(S));
+        if claims.as_ref().is_some_and(|c| !c.has_scope(S)) {
+            return Err(ApiError::MissingDevScope(S));
+        }
 
         Ok(ExtractApiKey(claims))
     }
