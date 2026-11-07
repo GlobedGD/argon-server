@@ -13,6 +13,7 @@ pub struct Model {
     pub owner: i64,
     pub request_reload_ns: i64,
     pub created_at: DateTime,
+    pub scope: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

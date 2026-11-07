@@ -1,7 +1,4 @@
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use axum::{Router, routing::get};
 use utoipa::openapi::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -41,6 +38,8 @@ pub fn router(state: &AppState, config: &AppConfig) -> (Router<AppState>, OpenAp
     let (misc_router, misc_doc) = OpenApiRouter::new()
         // token validation (no rate limit, as already done by the extractor there)
         .routes(routes!(check::check))
+        .routes(routes!(check::discord_lookup))
+        .routes(routes!(check::discord_lookup_all))
         .routes(routes!(status::status))
         .split_for_parts();
 

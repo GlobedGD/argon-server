@@ -30,6 +30,10 @@ impl DiscordUserRepository {
         DiscordUser::find().filter(discord_user::Column::UserId.eq(id as i64)).one(&self.db).await
     }
 
+    pub async fn get_all(&self) -> Result<Vec<discord_user::Model>> {
+        DiscordUser::find().all(&self.db).await
+    }
+
     pub async fn update(&self, user: discord_user::ActiveModel) -> Result<discord_user::Model> {
         user.update(&self.db).await
     }

@@ -15,7 +15,7 @@ use crate::{
     routes::{
         api::{ApiError, ApiResult, error::ErrorBody},
         util::{
-            extractors::{ExtractAccManagementToken, ExtractAccessToken},
+            extractors::ExtractAccManagementToken,
             responders::{Either, NoCache},
         },
     },

@@ -81,6 +81,8 @@
             <label>Description <input type="text" name="description" maxlength="256" placeholder="Optional description">
             </label>
 
+            {% include "./widgets/scope_list.html" %}
+
             <div class="grid">
                 <label>Requests
                     <input type="number" name="requests" min="1" value="1000" required>

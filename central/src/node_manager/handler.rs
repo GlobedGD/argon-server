@@ -75,10 +75,6 @@ impl NodeMessageHandler {
         }
     }
 
-    fn server(&self) -> ServerHandle<Self> {
-        self.server.get().unwrap().upgrade().unwrap()
-    }
-
     async fn handle_message(&self, msg: ArgonNodeMessage, client: &Arc<ClientState<Self>>) {
         if !client.authorized() && !msg.is_safe_unauthenticated() {
             warn!("unauthorized message from node {}: {:?}", client.address, msg);
@@ -128,6 +124,6 @@ impl NodeMessageHandler {
 
     pub fn send_message(&self, client: &ClientState<Self>, msg: &ArgonNodeMessage) {
         let data = msg.encode().expect("failed to encode");
-        client.send_data(&data, &self.server());
+        client.send_data(&data);
     }
 }

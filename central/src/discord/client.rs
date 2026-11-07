@@ -54,6 +54,16 @@ impl From<discord_user::Model> for DiscordUserDataFull {
     }
 }
 
+impl From<discord_user::Model> for DiscordUserData {
+    fn from(model: discord_user::Model) -> Self {
+        Self {
+            id: model.discord_id,
+            username: model.username,
+            avatar_url: model.avatar_url,
+        }
+    }
+}
+
 impl From<DiscordUserDataFull> for DiscordUserData {
     fn from(full: DiscordUserDataFull) -> Self {
         Self {

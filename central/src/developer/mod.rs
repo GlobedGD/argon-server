@@ -1,9 +1,10 @@
-use std::{net::IpAddr, num::NonZeroU32, time::Duration};
+use std::{fmt::Display, marker::ConstParamTy, net::IpAddr, num::NonZeroU32, time::Duration};
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use constant_time_eq::constant_time_eq;
 use dashmap::DashMap;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
+use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 
 use crate::{
     config::AppConfig,
@@ -34,11 +35,72 @@ pub struct DeveloperManager {
     api_keys: DashMap<i64, dev_api_key::Model>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, IntoStaticStr, ConstParamTy)]
+pub enum DevScope {
+    /// Allows checking tokens via /v2/token/validate
+    TokenValidation,
+    /// Allows looking up Discord accounts
+    Discord,
+    /// Allows looking up the entire registry of linked Discord accounts at once
+    DiscordLookupAll,
+}
+
+pub const DEFAULT_SCOPES: &[DevScope] = &[DevScope::TokenValidation];
+
+pub struct DevScopeChoice {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub checked: bool,
+}
+
+impl DevScope {
+    pub fn to_str(self) -> &'static str {
+        match self {
+            DevScope::TokenValidation => "token",
+            DevScope::Discord => "discord",
+            DevScope::DiscordLookupAll => "discord-lookup-all",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        self.into()
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Option<Self> {
+        DevScope::iter().find(|scope| scope.to_str() == s)
+    }
+
+    pub fn choices(enabled: &[DevScope]) -> Vec<DevScopeChoice> {
+        DevScope::iter()
+            .map(|scope| DevScopeChoice {
+                id: scope.to_str(),
+                label: scope.label(),
+                checked: enabled.contains(&scope),
+            })
+            .collect()
+    }
+}
+
+impl Display for DevScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ApiKeyClaims {
     pub id: i64,
     pub owner: i64,
     pub secret: String,
+    pub scope: String,
+}
+
+impl ApiKeyClaims {
+    pub fn has_scope(&self, scope: DevScope) -> bool {
+        let str = scope.to_str();
+        self.scope.split(',').any(|s| s == str)
+    }
 }
 
 impl DeveloperManager {
@@ -85,6 +147,7 @@ impl DeveloperManager {
                 id: model.id,
                 owner: model.owner,
                 secret: model.secret.clone(),
+                scope: model.scope.clone(),
             })
         } else {
             Err(ApiKeyError::InvalidKey)
@@ -284,11 +347,13 @@ impl DeveloperManager {
         dev_id: i64,
         name: &str,
         description: &str,
+        scope: &str,
         request_reload_ns: u64,
     ) -> Result<DevApiKey, DevError> {
         let model = dev_api_key::ActiveModel {
             name: Set(name.to_owned()),
             description: Set(description.to_owned()),
+            scope: Set(scope.to_owned()),
             // Note: the repository ensures that a key with no secret isn't considered valid, the user will rotate the secret themselves later
             secret: Set(String::new()),
             owner: Set(dev_id),
@@ -308,11 +373,13 @@ impl DeveloperManager {
         key_id: i64,
         name: &str,
         description: &str,
+        scope: &str,
         request_reload_ns: u64,
     ) -> Result<DevApiKey, DevError> {
         let mut key = self.api_key_repo.get_key(key_id).await?.ok_or(DevError::NotFound)?.into_active_model();
         key.name = Set(name.to_owned());
         key.description = Set(description.to_owned());
+        key.scope = Set(scope.to_owned());
         key.request_reload_ns = Set(request_reload_ns.max(1) as i64);
 
         let key = self.api_key_repo.update(key).await?;

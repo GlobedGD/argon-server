@@ -7,7 +7,7 @@ use axum::{
 };
 
 use crate::{
-    developer::ApiKeyClaims,
+    developer::{ApiKeyClaims, DevScope},
     routes::api::ApiError,
     state::AppState,
     token::{Scope, TokenClaims},
@@ -41,9 +41,11 @@ pub type ExtractRefreshToken = ExtractToken<{ Scope::Refresh }>;
 pub type ExtractAccessToken = ExtractToken<{ Scope::Access }>;
 pub type ExtractAccManagementToken = ExtractToken<{ Scope::AccountManagement }>;
 
-pub struct ExtractApiKey(pub Option<ApiKeyClaims>);
+// -- API keys --
 
-impl FromRequestParts<AppState> for ExtractApiKey {
+pub struct ExtractApiKey<const S: DevScope>(pub Option<ApiKeyClaims>);
+
+impl<const S: DevScope> FromRequestParts<AppState> for ExtractApiKey<S> {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
@@ -54,20 +56,26 @@ impl FromRequestParts<AppState> for ExtractApiKey {
             None => None,
         };
 
-        // parts.extensions.insert(claims.clone());
+        let claims = claims.filter(|claims| claims.has_scope(S));
 
         Ok(ExtractApiKey(claims))
     }
 }
 
-pub struct ApiKeyRateLimit;
+pub struct ApiKeyRateLimit<const S: DevScope, const KEY_REQUIRED: bool = true>;
 
-impl FromRequestParts<AppState> for ApiKeyRateLimit {
+impl<const S: DevScope, const KEY_REQUIRED: bool> FromRequestParts<AppState>
+    for ApiKeyRateLimit<S, KEY_REQUIRED>
+{
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let VerifiedIpAddr(ip) = VerifiedIpAddr::from_request_parts(parts, state).await?;
-        let ExtractApiKey(claims) = ExtractApiKey::from_request_parts(parts, state).await?;
+        let ExtractApiKey(claims) = ExtractApiKey::<S>::from_request_parts(parts, state).await?;
+
+        if KEY_REQUIRED && claims.is_none() {
+            return Err(ApiError::MissingAuth);
+        }
 
         state.developer_manager.check_rate_limit(claims.as_ref(), ip).await?;
 

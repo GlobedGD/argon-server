@@ -311,6 +311,23 @@ impl UserManager {
         Ok(self.get_discord_data_ext(account_id).await?.map(DiscordUserData::from))
     }
 
+    pub async fn get_user_data_by_discord_id(
+        &self,
+        discord_id: i64,
+    ) -> Result<Option<(i32, DiscordUserData)>> {
+        let Some(discord_user) = self.discord_user_repository.get_user(discord_id).await? else {
+            return Ok(None);
+        };
+
+        let user_id = discord_user.user_id as i32;
+        Ok(Some((user_id, discord_user.into())))
+    }
+
+    pub async fn get_all_linked_users(&self) -> Result<Vec<(i32, DiscordUserData)>> {
+        let users = self.discord_user_repository.get_all().await?;
+        Ok(users.into_iter().map(|u| (u.user_id as i32, u.into())).collect())
+    }
+
     pub async fn get_discord_data_ext(&self, account_id: i32) -> Result<Option<DiscordUserDataFull>> {
         if !self.discord_enabled() {
             return Ok(None);

@@ -15,7 +15,7 @@ use super::{
     session::AdminSession,
 };
 use crate::{
-    developer::{DevApiKey, Developer, DeveloperManager},
+    developer::{DEFAULT_SCOPES, DevApiKey, DevScope, DevScopeChoice, Developer, DeveloperManager},
     routes::web::{
         Html,
         csrf::{csrf_token, verify_csrf_token},
@@ -134,6 +134,7 @@ pub struct AdminDeveloperPageTemplate {
     developer: Developer,
     keys: Vec<DevApiKey>,
     flash: Option<Flash>,
+    scopes: Vec<DevScopeChoice>,
 }
 
 pub async fn get_developer(
@@ -151,6 +152,7 @@ pub async fn get_developer(
         developer,
         keys: dev_manager.get_developer_keys(id).await?,
         flash: take_flash(&session).await?,
+        scopes: DevScope::choices(DEFAULT_SCOPES),
     }))
 }
 

@@ -53,6 +53,8 @@ pub enum Error {
     Forbidden,
     #[error("bad redirect URL")]
     BadRedirectUrl,
+    #[error("bad request: {0}")]
+    BadRequest(String),
     #[error("advanced auth is not enabled")]
     AdvancedAuthNotEnabled,
 }
@@ -73,6 +75,7 @@ impl Error {
             Error::InvalidCredentials => "invalid_credentials",
             Error::Forbidden => "forbidden",
             Error::BadRedirectUrl => "bad_redirect_url",
+            Error::BadRequest(_) => "bad_request",
             Error::AdvancedAuthNotEnabled => "advanced_auth_not_enabled",
         }
     }
@@ -92,6 +95,7 @@ impl Error {
             Error::InvalidCredentials => StatusCode::UNAUTHORIZED,
             Error::Forbidden => StatusCode::FORBIDDEN,
             Error::BadRedirectUrl => StatusCode::BAD_REQUEST,
+            Error::BadRequest(_) => StatusCode::BAD_REQUEST,
             Error::AdvancedAuthNotEnabled => StatusCode::FORBIDDEN,
         }
     }

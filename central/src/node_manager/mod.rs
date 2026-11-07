@@ -188,14 +188,10 @@ impl NodeManager {
         }
     }
 
-    fn server(&self) -> ServerHandle<NodeMessageHandler> {
-        self.server.lock().as_ref().unwrap().clone()
-    }
-
     fn send_message_to_node(&self, node: &ArgonNode, message: &ArgonNodeMessage) {
         if let Some(client) = self.client_map.get(&node.id) {
             let data = message.encode().expect("failed to encode");
-            client.send_data(&data, &self.server());
+            client.send_data(&data);
         }
     }
 

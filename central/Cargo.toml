@@ -49,6 +49,8 @@ tower-cookies = { version = "0.11.0", features = ["signed"] }
 utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
 utoipa-axum = "0.3.0"
 utoipa-swagger-ui = { version = "10.0.2", features = ["axum", "vendored"] }
+axum-extra = { version = "0.12.6", features = ["form"] }
+itertools = "0.15.0"
 
 [features]
 docker = ["shared/docker"]

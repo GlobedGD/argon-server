@@ -1,4 +1,4 @@
-use axum::{Json, Router, routing::get};
+use axum::Router;
 use utoipa::{
     OpenApi,
     openapi::{
@@ -51,7 +51,5 @@ pub fn document(operations: openapi::OpenApi) -> openapi::OpenApi {
 /// Serves the documentation UI and the raw spec for the given set of operations.
 pub fn router(operations: openapi::OpenApi) -> Router<AppState> {
     let doc = document(operations);
-
-    let spec = doc.clone();
     Router::new().merge(SwaggerUi::new("/docs").url("/v2/openapi.json", doc))
 }
