@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub struct DiscordView {
-    pub id: i64,
+    pub id: u64,
     pub username: String,
     pub avatar_url: String,
     pub last_sync: String,

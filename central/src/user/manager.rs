@@ -315,6 +315,10 @@ impl UserManager {
         &self,
         discord_id: i64,
     ) -> Result<Option<(i32, DiscordUserData)>> {
+        if !self.discord_enabled() {
+            return Ok(None);
+        }
+
         let Some(discord_user) = self.discord_user_repository.get_user(discord_id).await? else {
             return Ok(None);
         };
@@ -324,6 +328,10 @@ impl UserManager {
     }
 
     pub async fn get_all_linked_users(&self) -> Result<Vec<(i32, DiscordUserData)>> {
+        if !self.discord_enabled() {
+            return Ok(Vec::new());
+        }
+
         let users = self.discord_user_repository.get_all().await?;
         Ok(users.into_iter().map(|u| (u.user_id as i32, u.into())).collect())
     }
@@ -356,7 +364,7 @@ impl UserManager {
     }
 
     pub async fn link_discord_account(&self, account_id: i32, data: DiscordUserData) -> ApiResult<()> {
-        let discord_id = data.id;
+        let discord_id = data.id as i64;
         let mut user = match self.user_repository.get_user(account_id).await? {
             Some(user) => user.into_active_model(),
             None => user::ActiveModel {

@@ -196,7 +196,8 @@ fn parse_scopes(scopes: &[String]) -> Result<Vec<DevScope>, WebError> {
 }
 
 fn parse_scopes_str(scopes: &str) -> Result<Vec<DevScope>, WebError> {
-    let scopes = scopes.split(',').map(DevScope::from_str).collect::<Option<Vec<_>>>();
+    let scopes =
+        scopes.split(',').filter(|s| !s.is_empty()).map(DevScope::from_str).collect::<Option<Vec<_>>>();
     scopes.ok_or_else(|| WebError::BadRequest("invalid choice for devscope".to_owned()))
 }
 

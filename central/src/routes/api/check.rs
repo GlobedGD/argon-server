@@ -155,11 +155,10 @@ pub struct DiscordLookupAllResponse {
 ///
 /// This requires an API key with an appropriate scope (DiscordLookupAll)
 #[utoipa::path(
-    post,
+    get,
     path = "/v2/discord/lookup-all",
     tag = "discord",
     security(("api_key" = [])),
-    request_body = DiscordLookupData,
     responses(
         (status = 200, body = DiscordLookupAllResponse),
         (status = 401, body = ErrorBody, description = "The provided API key is invalid"),

@@ -30,14 +30,14 @@ pub struct DiscordClient {
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserData {
-    pub id: i64,
+    pub id: u64,
     pub username: String,
     pub avatar_url: String,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserDataFull {
-    pub id: i64,
+    pub id: u64,
     pub username: String,
     pub avatar_url: String,
     pub last_sync_time: chrono::NaiveDateTime,
@@ -46,7 +46,7 @@ pub struct DiscordUserDataFull {
 impl From<discord_user::Model> for DiscordUserDataFull {
     fn from(model: discord_user::Model) -> Self {
         Self {
-            id: model.discord_id,
+            id: model.discord_id as u64,
             username: model.username,
             avatar_url: model.avatar_url,
             last_sync_time: model.last_sync_time,
@@ -57,7 +57,7 @@ impl From<discord_user::Model> for DiscordUserDataFull {
 impl From<discord_user::Model> for DiscordUserData {
     fn from(model: discord_user::Model) -> Self {
         Self {
-            id: model.discord_id,
+            id: model.discord_id as u64,
             username: model.username,
             avatar_url: model.avatar_url,
         }
@@ -83,8 +83,8 @@ pub struct SuccessfulOauthFlow {
 
 #[derive(Deserialize)]
 struct ApiUserObject {
-    #[serde(deserialize_with = "deserialize_i64_str")]
-    id: i64,
+    #[serde(deserialize_with = "deserialize_u64_str")]
+    id: u64,
     username: String,
     avatar: Option<String>,
 }
@@ -174,13 +174,13 @@ impl DiscordClient {
         let user = self.get::<ApiUserObject>("users/@me", format!("Bearer {access_token}")).await?;
 
         Ok(DiscordUserData {
-            id: user.id,
+            id: user.id as u64,
             username: user.username,
             avatar_url: self.avatar_url(user.id, user.avatar.as_deref()),
         })
     }
 
-    fn avatar_url(&self, id: i64, hash: Option<&str>) -> String {
+    fn avatar_url(&self, id: u64, hash: Option<&str>) -> String {
         if let Some(hash) = hash {
             format!("https://cdn.discordapp.com/avatars/{id}/{hash}.webp?size=1024")
         } else {
@@ -230,7 +230,7 @@ impl DiscordClient {
     }
 }
 
-fn deserialize_i64_str<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<i64, D::Error> {
+fn deserialize_u64_str<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<u64, D::Error> {
     let s = String::deserialize(deserializer)?;
-    s.parse::<i64>().map_err(serde::de::Error::custom)
+    s.parse::<u64>().map_err(serde::de::Error::custom)
 }
