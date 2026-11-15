@@ -2,7 +2,7 @@
 {% block title %}Log in{% endblock %}
 {% block content %}
 <article class="login-card">
-    <h1>Log in</h1>
+    <h1 style="text-align:center;">Log in</h1>
     <form method="POST" action="/dev/login">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
@@ -16,7 +16,7 @@
         <p class="form-error" role="alert">{{ error }}</p>
         {% endif %}
 
-        <button type="submit">Log in</button>
+        <button type="submit" style="width: fit-content; padding: 10px 24px; display: block; margin: auto;">Log in</button>
     </form>
 </article>
 {% endblock %}

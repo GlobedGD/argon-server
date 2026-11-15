@@ -8,8 +8,8 @@
     <h1>Hi, {{ me.username }}</h1>
 </header>
 
-<article>
-    <header>
+<article style="padding-left: 0px; padding-right: 0px; padding-top: 20px; margin-bottom: 20px; padding-bottom: 0px;">
+    <header style="margin-left: 0px;margin-bottom: 0px;border-bottom-width: 0px;border-bottom-style: solid;padding-right: 0px;margin-right: 0px;">
         <strong>Your API keys</strong>
     </header>
 
@@ -20,7 +20,7 @@
         <table>
             <thead>
                 <tr>
-                    <th>Name</th>
+                    <th style="width: 25%">Name</th>
                     <th class="hide-sm">Rate limit</th>
                     <th class="hide-sm">Created</th>
                     <th>Actions</th>
@@ -29,10 +29,22 @@
             <tbody>
                 {% for key in keys %}
                 <tr>
-                    <td>
+                    <td style="max-width: 0"> <!-- Long names and descriptions will totally fuck up the table without max-width: 0 -->
                         {{ key.name }}
                         {% if !key.description.is_empty() %}
-                        <br><small>{{ key.description }}</small>
+                        <br>
+                        <small
+                            title="{{ key.description }}"
+                            style="
+                                display: block;
+                                overflow: hidden;
+                                text-overflow: ellipsis;
+                                white-space: nowrap;
+                                max-width: 250px;
+                                cursor: help;
+                            "
+                        >
+                        {{ key.description }}</small>
                         {% endif %}
                     </td>
                     <td class="hide-sm">{{ key.rate_limit_summary() }}</td>
