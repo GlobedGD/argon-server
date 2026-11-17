@@ -4,10 +4,10 @@
 use std::{env, net::SocketAddr};
 
 use axum::{
-    Router,
-    extract::{DefaultBodyLimit, Request},
+    RequestExt, Router,
+    extract::{ConnectInfo, DefaultBodyLimit, Request},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use tokio::net::TcpListener;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -101,7 +101,16 @@ async fn maybe_cli(_config: &AppConfig, state: &AppState) -> anyhow::Result<()> 
     std::process::exit(0);
 }
 
-async fn log_middleware(req: Request, next: Next) -> Response {
-    debug!(method = %req.method(), path = %req.uri().path(), "incoming request");
+async fn log_middleware(mut req: Request, next: Next) -> Response {
+    let info = match req.extract_parts::<ConnectInfo<SocketAddr>>().await {
+        Ok(info) => info,
+        Err(e) => {
+            return e.into_response();
+        }
+    };
+
+    let addr = info.0;
+
+    debug!(method = %req.method(), path = %req.uri().path(), addr = %addr, "incoming request");
     next.run(req).await
 }
