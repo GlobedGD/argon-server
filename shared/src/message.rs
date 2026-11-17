@@ -21,6 +21,7 @@ pub struct UserChallenge {
 pub enum UserChallengeOutcome {
     Success,
     ResourceFailing,
+    UserNotFound,
     OtherError,
 }
 

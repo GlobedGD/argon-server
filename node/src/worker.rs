@@ -17,7 +17,10 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::{config::NodeConfig, gd::Client as GDClient};
+use crate::{
+    config::NodeConfig,
+    gd::{self, Client as GDClient},
+};
 
 struct PendingChallenge {
     account_id: i32,
@@ -296,43 +299,8 @@ impl NodeWorker {
             // decrement budget once we get to the part where we actually fetch something
             budget -= 1;
 
-            let user_info = match client.get_user_info(challenge.account_id).await {
-                Ok(u) => u,
-                Err(e) => {
-                    warn!("Failed to fetch user info for account {}: {:?}", challenge.account_id, e);
-                    continue;
-                }
-            };
-
-            let (id, secret) = if !legacy {
-                match extract_id_and_secret_from_text(&user_info.custom) {
-                    Some(ans) if ans.0 == challenge.challenge_id => ans,
-                    _ => continue,
-                }
-            } else {
-                // legacy is more tricky, since the client never sent the challenge ID in the response,
-                // we need to find it ourselves given the account ID
-                let Some(secret) = extract_secret_from_legacy_text(&user_info.custom) else {
-                    continue;
-                };
-
-                let Some((&id, _)) = resource.pending_ids.iter().find(|(_, c)| {
-                    c.account_id == user_info.account_id && c.should_poll.load(Ordering::Relaxed)
-                }) else {
-                    continue;
-                };
-
-                (id, secret)
-            };
-
-            // consider this challenge completed
-            info!("challenge {} completed for user {} (profile field)", id, user_info.account_id);
-            completed.push(UserChallengeResult::new_success(
-                user_info.account_id,
-                id,
-                secret,
-                user_info.account_data(),
-            ));
+            let result = Self::check_one_profile_helper(client, challenge, resource, legacy).await;
+            completed.push(result);
         }
 
         // remove all completed challenges from queue and resource tracker,
@@ -340,6 +308,83 @@ impl NodeWorker {
         completed.retain(|c| resource.remove_pending(c.challenge_id, c.account_id));
 
         Some(completed)
+    }
+
+    async fn check_one_profile_helper(
+        client: &GDClient,
+        challenge: &PendingChallenge,
+        resource: &WorkerResource,
+        legacy: bool,
+    ) -> UserChallengeResult {
+        let user_info = match client.get_user_info(challenge.account_id).await {
+            Ok(u) => u,
+            Err(e) => {
+                warn!("Failed to fetch user info for account {}: {:?}", challenge.account_id, e);
+                let outcome = if matches!(e, gd::Error::GenericBoomlings) {
+                    UserChallengeOutcome::UserNotFound
+                } else {
+                    UserChallengeOutcome::ResourceFailing
+                };
+
+                return UserChallengeResult::new_failure(
+                    challenge.account_id,
+                    challenge.challenge_id,
+                    outcome,
+                );
+            }
+        };
+
+        let (id, secret) =
+            if !legacy {
+                match extract_id_and_secret_from_text(&user_info.custom) {
+                    Some(ans) if ans.0 == challenge.challenge_id => ans,
+                    _ => {
+                        warn!(
+                            "could not extract challenge answer from profile field for {}, found '{}'",
+                            challenge.account_id, user_info.custom
+                        );
+                        return UserChallengeResult::new_failure(
+                            challenge.account_id,
+                            challenge.challenge_id,
+                            UserChallengeOutcome::OtherError,
+                        );
+                    }
+                }
+            } else {
+                // legacy is more tricky, since the client never sent the challenge ID in the response,
+                // we need to find it ourselves given the account ID
+                let Some(secret) = extract_secret_from_legacy_text(&user_info.custom) else {
+                    warn!(
+                        "could not extract legacy challenge answer from profile field for {}, found '{}'",
+                        challenge.account_id, user_info.custom
+                    );
+                    return UserChallengeResult::new_failure(
+                        challenge.account_id,
+                        challenge.challenge_id,
+                        UserChallengeOutcome::OtherError,
+                    );
+                };
+
+                let Some((&id, _)) = resource.pending_ids.iter().find(|(_, c)| {
+                    c.account_id == user_info.account_id && c.should_poll.load(Ordering::Relaxed)
+                }) else {
+                    warn!(
+                        "could not find pending challenge for user {}, found '{}'",
+                        challenge.account_id, user_info.custom
+                    );
+                    return UserChallengeResult::new_failure(
+                        challenge.account_id,
+                        challenge.challenge_id,
+                        UserChallengeOutcome::OtherError,
+                    );
+                };
+
+                (id, secret)
+            };
+
+        // consider this challenge completed
+        info!("challenge {} completed for user {} (profile field)", id, user_info.account_id);
+        UserChallengeResult::new_success(user_info.account_id, id, secret, user_info.account_data())
     }
 }
 

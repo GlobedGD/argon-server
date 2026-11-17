@@ -27,6 +27,11 @@ pub enum Error {
     Cloudflare(i32),
     #[error("website returned unparsable error")]
     Unknown,
+
+    #[error("Generic boomlings error (-1)")]
+    GenericBoomlings,
+    #[error("Unknown boomlings error ({0})")]
+    UnknownBoomlings(i32),
 }
 
 impl Client {
@@ -116,6 +121,16 @@ impl Client {
                 Ok(1015) => return Err(Error::RateLimited),
                 Ok(code) => return Err(Error::Cloudflare(code)),
                 Err(_) => return Err(Error::Unknown),
+            }
+        }
+
+        // check for simple error aka -1 -2 etc
+        if text.starts_with("-")
+            && let Ok(code) = text.parse::<i32>()
+        {
+            match code {
+                -1 => return Err(Error::GenericBoomlings),
+                code => return Err(Error::UnknownBoomlings(code)),
             }
         }
 
