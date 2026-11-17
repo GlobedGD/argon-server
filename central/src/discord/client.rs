@@ -31,15 +31,19 @@ pub struct DiscordClient {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserData {
     pub id: u64,
-    pub username: String,
-    pub avatar_url: String,
+    /// Not set for some users that were migrated from the old system
+    pub username: Option<String>,
+    /// Not set for some users that were migrated from the old system
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct DiscordUserDataFull {
     pub id: u64,
-    pub username: String,
-    pub avatar_url: String,
+    /// Not set for some users that were migrated from the old system
+    pub username: Option<String>,
+    /// Not set for some users that were migrated from the old system
+    pub avatar_url: Option<String>,
     pub last_sync_time: chrono::NaiveDateTime,
 }
 
@@ -175,8 +179,8 @@ impl DiscordClient {
 
         Ok(DiscordUserData {
             id: user.id as u64,
-            username: user.username,
-            avatar_url: self.avatar_url(user.id, user.avatar.as_deref()),
+            username: Some(user.username),
+            avatar_url: Some(self.avatar_url(user.id, user.avatar.as_deref())),
         })
     }
 

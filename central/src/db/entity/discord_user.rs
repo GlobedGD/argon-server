@@ -9,8 +9,8 @@ pub struct Model {
     pub discord_id: i64,
     #[sea_orm(unique)]
     pub user_id: i64,
-    pub username: String,
-    pub avatar_url: String,
+    pub username: Option<String>,
+    pub avatar_url: Option<String>,
     pub last_sync_time: DateTime,
 }
 

@@ -63,8 +63,8 @@ impl DiscordUserRepository {
     /// Syncs avatar URL, username and sets the last sync time for the user
     pub async fn sync_details(&self, account_id: i32, data: DiscordUserData) -> Result<bool> {
         let updated = DiscordUser::update_many()
-            .col_expr(discord_user::Column::AvatarUrl, Expr::value(Value::String(Some(data.avatar_url))))
-            .col_expr(discord_user::Column::Username, Expr::value(Value::String(Some(data.username))))
+            .col_expr(discord_user::Column::AvatarUrl, Expr::value(Value::String(data.avatar_url)))
+            .col_expr(discord_user::Column::Username, Expr::value(Value::String(data.username)))
             .col_expr(
                 discord_user::Column::LastSyncTime,
                 Expr::value(Value::ChronoDateTime(Some(chrono::Utc::now().naive_utc()))),

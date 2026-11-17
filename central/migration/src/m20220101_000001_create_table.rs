@@ -26,8 +26,8 @@ impl MigrationTrait for Migration {
                     .table("discord_user")
                     .col(integer_uniq("discord_id").primary_key())
                     .col(integer_uniq("user_id"))
-                    .col(string("username"))
-                    .col(string("avatar_url"))
+                    .col(string_null("username"))
+                    .col(string_null("avatar_url"))
                     .col(date_time("last_sync_time"))
                     .to_owned(),
             )
