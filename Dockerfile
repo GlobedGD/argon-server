@@ -1,6 +1,6 @@
 FROM --platform=$BUILDPLATFORM debian:trixie-slim AS builder-tools
 
-ARG RUST_NIGHTLY_VERSION=nightly-2026-05-01
+ARG RUST_NIGHTLY_VERSION=nightly-2026-10-24
 ARG ZIG_VERSION=0.15.2
 
 ENV CARGO_HOME=/cargo \
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain ${RUST_NIGHTLY_VERSION} \
     && curl -L https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz | tar -xJ && mv zig-x86_64-linux-${ZIG_VERSION} /zig \
-    && cargo install --locked cargo-zigbuild --version 0.22.3 \
-    && cargo install --locked cargo-chef --version 0.1.77 \
+    && cargo install --locked cargo-zigbuild --version 0.24.0 \
+    && cargo install --locked cargo-chef --version 0.1.78 \
     && rustup target add \
         x86_64-unknown-linux-gnu \
         aarch64-unknown-linux-gnu
@@ -53,18 +53,32 @@ COPY node ./node
 COPY shared ./shared
 COPY central ./central
 COPY Cargo.toml ./
-RUN cargo zigbuild --release --target $(cat /target.txt)
+RUN cargo zigbuild --release --target $(cat /target.txt) --features docker
 
-## debian runtime ##
-FROM debian:trixie-slim AS runtime-debian
+## debian runtime base ##
+FROM debian:trixie-slim AS runtime-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder-glibc /app/target/*/release/argon-server /argon-server
-COPY --from=builder-glibc /app/target/*/release/argon-node /argon-node
-
-EXPOSE 4340/tcp
+WORKDIR /app
 
 ENV INSIDE_DOCKER=1
+
+## central runtime ##
+FROM runtime-base AS runtime-central
+
+COPY --from=builder-glibc /app/target/*/release/central /argon-server
+COPY ./central/assets /app/assets
+
+EXPOSE 8000/tcp
+EXPOSE 8001/tcp
+
 ENTRYPOINT ["/argon-server"]
+
+## node runtime ##
+FROM runtime-base AS runtime-node
+
+COPY --from=builder-glibc /app/target/*/release/node /argon-node
+
+ENTRYPOINT ["/argon-node"]

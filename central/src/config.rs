@@ -1,149 +1,271 @@
 use std::{
-    fs::{File, OpenOptions},
-    path::Path,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    time::Duration,
 };
 
-use argon_shared::generate_keypair;
-use json_comments::StripComments;
-use rand::{RngExt, distr::Alphanumeric};
-use serde::{Deserialize, Serialize};
-use serde_json::{Serializer, ser::PrettyFormatter};
+use config::{Config, Environment, File};
+use serde::Deserialize;
+use shared::{DOCKER_CONFIG_BASE_NAME, logging::LoggingConfig, resource::ResourceType};
+use thiserror::Error;
+use validator::Validate;
 
-fn default_false() -> bool {
-    false
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct AppConfig {
+    #[serde(default)]
+    pub http: HttpConfig,
+    #[serde(default)]
+    pub node_handler: NodeHandlerConfig,
+    #[serde(default)]
+    pub database: DatabaseConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
+    pub legacy: LegacyConfig,
+    #[serde(default)]
+    pub discord: DiscordConfig,
+    #[serde(default)]
+    pub developers: DevelopersConfig,
+    #[serde(default)]
+    pub web: WebConfig,
 }
 
-fn default_accounts() -> Vec<GDAccountCreds> {
-    Vec::new()
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Failed to load configuration: {0}")]
+    Load(#[from] config::ConfigError),
+
+    #[error("Failed to validate configuration: {0}")]
+    Validation(#[from] validator::ValidationErrors),
 }
 
-fn default_base_url() -> String {
-    "https://www.boomlings.com/database".to_owned()
+impl AppConfig {
+    pub fn load() -> Result<Self, ConfigError> {
+        let cfg: AppConfig = Config::builder()
+            .add_source(File::with_name(DOCKER_CONFIG_BASE_NAME).required(false))
+            .add_source(File::with_name("config.toml").required(false))
+            .add_source(Environment::with_prefix("ARGON").separator("_").try_parsing(true))
+            .build()?
+            .try_deserialize()?;
+
+        cfg.validate()?;
+
+        Ok(cfg)
+    }
 }
 
-fn default_msg_check_interval() -> u32 {
-    4000 // 4 seconds
+// Sub config structs
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HttpConfig {
+    pub bind: SocketAddr,
+    #[serde(default)]
+    pub trusted_proxies: Vec<IpAddr>,
 }
 
-fn default_handler_address() -> String {
-    "0.0.0.0:4340".to_owned()
-}
-
-fn default_password() -> String {
-    rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect()
-}
-
-fn default_string() -> String {
-    String::new()
-}
-
-fn default_log_retention() -> u32 {
-    60 * 60 * 24 * 30 // 30 days
-}
-
-fn gen_secret_key() -> String {
-    hex::encode(generate_keypair().0.to_bytes())
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct GDAccountCreds {
-    pub id: i32,
-    pub gjp: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct RateLimitConfig {
-    // all of those are per hour
-    pub max_accounts_per_ip: usize,
-    pub max_tokens_per_ip: usize,
-    pub max_failures_per_ip: usize,
-    pub max_attempts_per_ip: usize,
-
-    pub validations_per_day: usize,
-    pub validations_per_hour: usize,
-}
-
-impl Default for RateLimitConfig {
+impl Default for HttpConfig {
     fn default() -> Self {
         Self {
-            max_accounts_per_ip: 10,
-            max_tokens_per_ip: 20,
-            max_failures_per_ip: 30,
-            max_attempts_per_ip: 120,
-            validations_per_day: 10000,
-            validations_per_hour: 750,
+            bind: "0.0.0.0:8000".parse().unwrap(),
+            trusted_proxies: vec![],
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ServerConfig {
-    #[serde(default = "default_false")]
-    pub distributed_mode: bool,
-    #[serde(default = "default_accounts")]
-    pub accounts: Vec<GDAccountCreds>,
-    #[serde(default = "default_base_url")]
-    pub base_url: String,
-    #[serde(default = "default_msg_check_interval")]
-    pub msg_check_interval: u32,
-    #[serde(default = "default_handler_address")]
-    pub handler_address: String,
-    #[serde(default = "default_password")]
-    pub password: String,
-    #[serde(default = "default_string")]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NodeHandlerConfig {
+    pub bind: SocketAddr,
     pub secret_key: String,
-    #[serde(default = "default_false")]
-    pub cloudflare_protection: bool,
-    #[serde(default = "default_false")]
-    pub enable_anonymous_logs: bool,
-    #[serde(default = "default_log_retention")]
-    pub log_retention: u32,
-
-    // rate limit stuff
-    #[serde(default)]
-    pub rate_limits: RateLimitConfig,
+    pub tls_cert: PathBuf,
+    pub tls_key: PathBuf,
 }
 
-impl ServerConfig {
-    pub fn load(source: &Path) -> anyhow::Result<Self> {
-        let file = File::open(source)?;
-        let stripped = StripComments::new(file);
-        let config: ServerConfig = serde_json::from_reader(stripped)?;
-
-        Ok(config)
-    }
-
-    pub fn save(&self, dest: &Path) -> anyhow::Result<()> {
-        let writer = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(dest)?;
-
-        let formatter = PrettyFormatter::with_indent(b"    ");
-        let mut serializer = Serializer::with_formatter(writer, formatter);
-        self.serialize(&mut serializer)?;
-
-        Ok(())
-    }
-
-    pub fn reload_in_place(&mut self, source: &Path) -> anyhow::Result<()> {
-        let conf = Self::load(source)?;
-
-        self.clone_from(&conf);
-        Ok(())
-    }
-}
-
-impl Default for ServerConfig {
+impl Default for NodeHandlerConfig {
     fn default() -> Self {
-        let mut val: ServerConfig = serde_json::from_str("{}").unwrap();
-        val.secret_key = gen_secret_key();
-
-        val
+        Self {
+            bind: "0.0.0.0:8001".parse().unwrap(),
+            secret_key: "".to_owned(),
+            tls_cert: PathBuf::new(),
+            tls_key: PathBuf::new(),
+        }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabaseConfig {
+    #[validate(length(min = 1))]
+    pub url: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url: "sqlite://db.sqlite?mode=rwc".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthResourceConfig {
+    pub r#type: ResourceType,
+    #[serde(default)]
+    pub id: i32,
+    /// Whether the resource can be claimed by multiple worker nodes. When only 1 node is used, nothing changes.
+    /// If multiple nodes are used, `reusable = false` will mean only 1 node can claim that resource, and others will have to try another resource.
+    #[serde(default = "default_reusable")]
+    pub reusable: bool,
+}
+
+impl Default for AuthResourceConfig {
+    fn default() -> Self {
+        Self {
+            r#type: ResourceType::ProfileField,
+            id: 0,
+            reusable: true,
+        }
+    }
+}
+
+fn default_reusable() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthConfig {
+    pub resources: Vec<AuthResourceConfig>,
+    #[validate(custom(function = "validate_secret_key"))]
+    pub secret_key: String,
+    #[serde(with = "humantime_serde", default = "default_refresh_token_expiry")]
+    pub refresh_token_expiry: Duration,
+    #[serde(with = "humantime_serde", default = "default_access_token_expiry")]
+    pub access_token_expiry: Duration,
+    #[serde(with = "humantime_serde", default = "default_access_token_expiry")]
+    pub advanced_auth_token_expiry: Duration,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            resources: vec![AuthResourceConfig::default()],
+            secret_key: String::new(),
+            refresh_token_expiry: default_refresh_token_expiry(),
+            access_token_expiry: default_access_token_expiry(),
+            advanced_auth_token_expiry: default_access_token_expiry(),
+        }
+    }
+}
+
+fn validate_secret_key(key: &str) -> Result<(), validator::ValidationError> {
+    if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(validator::ValidationError::new(
+            "invalid secret key, must be a 256-bit hex-encoded string",
+        ));
+    }
+    Ok(())
+}
+
+fn default_refresh_token_expiry() -> Duration {
+    Duration::from_days(30)
+}
+
+fn default_access_token_expiry() -> Duration {
+    Duration::from_mins(30)
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct LegacyConfig {
+    pub enabled: bool,
+    pub ident: Option<String>,
+    #[serde(with = "humantime_serde", default = "default_legacy_token_expiry")]
+    pub token_expiry: Duration,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ident: None,
+            token_expiry: default_legacy_token_expiry(),
+        }
+    }
+}
+
+fn default_legacy_token_expiry() -> Duration {
+    Duration::from_days(7)
+}
+
+#[derive(Default, Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct DiscordConfig {
+    pub enabled: bool,
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct DevelopersConfig {
+    #[serde(default = "default_request_rate_limit")]
+    pub request_rate_limit: u32,
+    #[serde(with = "humantime_serde", default = "default_request_rate_limit_period")]
+    pub request_rate_limit_period: Duration,
+    #[serde(default = "default_request_max_burst")]
+    pub request_max_burst: u32,
+}
+
+impl Default for DevelopersConfig {
+    fn default() -> Self {
+        Self {
+            request_rate_limit: default_request_rate_limit(),
+            request_rate_limit_period: default_request_rate_limit_period(),
+            request_max_burst: default_request_max_burst(),
+        }
+    }
+}
+
+fn default_request_rate_limit() -> u32 {
+    10
+}
+
+fn default_request_rate_limit_period() -> Duration {
+    Duration::from_secs(1)
+}
+
+fn default_request_max_burst() -> u32 {
+    10
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebConfig {
+    #[serde(default = "default_session_expiry", with = "humantime_serde")]
+    pub session_expiry: Duration,
+    #[serde(default = "default_assets_dir")]
+    pub assets_dir: PathBuf,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            session_expiry: default_session_expiry(),
+            assets_dir: default_assets_dir(),
+        }
+    }
+}
+
+fn default_session_expiry() -> Duration {
+    Duration::from_days(7)
+}
+
+fn default_assets_dir() -> PathBuf {
+    PathBuf::from("assets/")
 }

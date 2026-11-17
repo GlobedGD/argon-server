@@ -1,0 +1,9 @@
+<fieldset>
+    <legend>Scopes</legend>
+    {% for scope in scopes %}
+    <label>
+        <input type="checkbox" name="scopes" value="{{ scope.id }}" {% if scope.checked %} checked{% endif %}>
+        {{ scope.label }}
+    </label>
+    {% endfor %}
+</fieldset>

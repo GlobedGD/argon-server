@@ -1,0 +1,56 @@
+use std::time::Duration;
+
+use sea_orm::{
+    ConnectOptions,
+    sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous},
+};
+
+use crate::{
+    config::AppConfig,
+    db::repository::{
+        DevAccountRepository, DevApiKeyRepository, DevSessionRepository, DiscordUserRepository,
+        UserRepository, UserSessionRepository,
+    },
+};
+use migration::{Migrator, MigratorTrait};
+
+pub mod entity;
+pub mod repository;
+
+pub struct Database {
+    pub user_repository: UserRepository,
+    pub discord_user_repository: DiscordUserRepository,
+    pub dev_account_repository: DevAccountRepository,
+    pub dev_api_key_repository: DevApiKeyRepository,
+    pub dev_session_repository: DevSessionRepository,
+    pub user_session_repository: UserSessionRepository,
+}
+
+pub type Result<T> = std::result::Result<T, sea_orm::DbErr>;
+
+impl Database {
+    pub async fn new(config: &AppConfig) -> anyhow::Result<Self> {
+        let mut opts = ConnectOptions::new(&config.database.url);
+        opts.sqlx_logging_level(log::LevelFilter::Debug);
+        opts.max_connections(8);
+        opts.map_sqlx_sqlite_opts(|o| {
+            o.journal_mode(SqliteJournalMode::Wal)
+                .synchronous(SqliteSynchronous::Normal)
+                .busy_timeout(Duration::from_secs(10))
+        });
+
+        let db = sea_orm::Database::connect(opts).await?;
+
+        // run migrations
+        Migrator::up(&db, None).await?;
+
+        Ok(Self {
+            user_repository: UserRepository::new(db.clone()),
+            discord_user_repository: DiscordUserRepository::new(db.clone()),
+            dev_account_repository: DevAccountRepository::new(db.clone()),
+            dev_api_key_repository: DevApiKeyRepository::new(db.clone()),
+            dev_session_repository: DevSessionRepository::new(db.clone()),
+            user_session_repository: UserSessionRepository::new(db.clone()),
+        })
+    }
+}

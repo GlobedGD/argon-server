@@ -1,7 +1,10 @@
 [workspace]
-members = ["central", "node", "shared"]
+members = ["central", "central/migration", "node", "shared"]
 resolver = "2"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[profile.dev.package.askama_derive]
+opt-level = 3

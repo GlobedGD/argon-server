@@ -1,13 +1,10 @@
-#![feature(duration_millis_float)]
+pub mod logging;
+pub mod message;
+pub mod resource;
 
-pub mod crypto;
-pub mod data;
-pub mod logger;
-pub mod node_connection;
-pub mod util;
+pub use qunet;
 
-pub use crypto::*;
-pub use data::*;
-pub use logger::*;
-pub use node_connection::*;
-pub use util::*;
+#[cfg(feature = "docker")]
+pub const DOCKER_CONFIG_BASE_NAME: &str = "/data/config.toml";
+#[cfg(not(feature = "docker"))]
+pub const DOCKER_CONFIG_BASE_NAME: &str = "config.toml";
