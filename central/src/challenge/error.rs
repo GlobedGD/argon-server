@@ -21,6 +21,8 @@ pub enum ChallengeError {
     ResourceFailing,
     #[error("Argon node ran into an unexpected error")]
     OtherNodeError,
+    #[error("Argon node did not find the user")]
+    UserNotFound,
     #[error("Server does not support any of the challenge types requested by the client")]
     ChallengeTypeNotSupported,
 }
@@ -37,6 +39,7 @@ impl ChallengeError {
             ChallengeError::ResourceFailing => StatusCode::SERVICE_UNAVAILABLE,
             ChallengeError::OtherNodeError => StatusCode::INTERNAL_SERVER_ERROR,
             ChallengeError::ChallengeTypeNotSupported => StatusCode::BAD_REQUEST,
+            ChallengeError::UserNotFound => StatusCode::NOT_FOUND,
         }
     }
 
@@ -51,6 +54,7 @@ impl ChallengeError {
             ChallengeError::ResourceFailing => "challenge_resource_failing",
             ChallengeError::OtherNodeError => "challenge_other_node_error",
             ChallengeError::ChallengeTypeNotSupported => "challenge_type_not_supported",
+            ChallengeError::UserNotFound => "challenge_user_not_found",
         }
     }
 }
@@ -61,6 +65,7 @@ impl From<UserChallengeOutcome> for ChallengeError {
             UserChallengeOutcome::Success => panic!("unexpected success"),
             UserChallengeOutcome::ResourceFailing => ChallengeError::ResourceFailing,
             UserChallengeOutcome::OtherError => ChallengeError::OtherNodeError,
+            UserChallengeOutcome::UserNotFound => ChallengeError::UserNotFound,
         }
     }
 }
