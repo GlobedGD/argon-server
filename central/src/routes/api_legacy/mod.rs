@@ -49,8 +49,11 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/validation/check-data-many", post(validation::check_data_many));
 
     Router::new()
-        .merge(rate_limited(challenge_router, state.clone(), 15, 2))
-        .merge(rate_limited(challenge_poll_router, state.clone(), 45, 5))
-        .merge(rate_limited(validation_router, state.clone(), 20, 5))
+        // light rate limiters since challenge controller has its own limiter for starting challenges
+        .merge(rate_limited(challenge_router, state.clone(), 60, 10))
+        .merge(rate_limited(challenge_poll_router, state.clone(), 240, 20))
+        // universal rate limit on old unauthenticated v1 validation endpoints,
+        // developers can use better rate limits and API keys by switching to /v2
+        .merge(rate_limited(validation_router, state.clone(), 30, 5))
         .route("/status", get(status::status))
 }

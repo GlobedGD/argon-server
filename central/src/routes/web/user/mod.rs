@@ -26,7 +26,7 @@ pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
         .route("/account/discord/unlink", post(account::unlink_discord))
         .route("/account/discord/sync", post(account::sync_discord))
         // rate limit login
-        .merge(rate_limited(Router::new().route("/login", get(account::get_login)), state.clone(), 30, 5))
+        .merge(rate_limited(Router::new().route("/login", get(account::get_login)), state.clone(), 120, 20))
         .route("/logout", post(account::logout))
         .layer(session_layer)
 }

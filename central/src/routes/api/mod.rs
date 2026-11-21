@@ -44,7 +44,7 @@ pub fn router(state: &AppState, config: &AppConfig) -> (Router<AppState>, OpenAp
         .split_for_parts();
 
     let mut router =
-        Router::new().merge(rate_limited(account_router, state.clone(), 45, 10)).merge(misc_router);
+        Router::new().merge(rate_limited(account_router, state.clone(), 60, 10)).merge(misc_router);
 
     let mut doc = account_doc;
     doc.merge(misc_doc);

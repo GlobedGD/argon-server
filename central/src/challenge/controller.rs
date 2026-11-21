@@ -124,11 +124,6 @@ impl ChallengeController {
         challenge_type: ChallengeType,
         ip_addr: IpAddr,
     ) -> Result<ChallengeData, ChallengeError> {
-        match self.rate_limiter.check(ip_addr) {
-            RateLimitOutcome::Allowed => {}
-            RateLimitOutcome::RateLimited { .. } => return Err(ChallengeError::RateLimited),
-        }
-
         if self.pending_challenges.len() >= MAX_PENDING_CHALLENGES {
             return Err(ChallengeError::TooManyChallengesInProgress);
         }
@@ -139,6 +134,13 @@ impl ChallengeController {
 
         let is_legacy = challenge_type == ChallengeType::LegacyProfileField;
         let (resource_key, node) = self.find_resource_for_challenge(challenge_type)?;
+
+        // check rate limiter now, after we are certain there's a resource
+        match self.rate_limiter.check(ip_addr) {
+            RateLimitOutcome::Allowed => {}
+            RateLimitOutcome::RateLimited { .. } => return Err(ChallengeError::RateLimited),
+        }
+
         let (secret, answer) = if is_legacy {
             compute_challenge_pair_legacy()
         } else {
