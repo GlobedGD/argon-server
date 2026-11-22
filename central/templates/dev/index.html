@@ -14,7 +14,7 @@
     </header>
 
     {% if keys.is_empty() %}
-    <p>No API keys found</p>
+    <p>No API keys found, ask an administrator to create one</p>
     {% else %}
     <div class="table-wrap">
         <table>
@@ -47,6 +47,17 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div>
+        <strong>How to use an API key?</strong>
+        <br>
+        <br>
+        <span>1. Press the Rotate button on the key to get the key, e.g. <code>2:12345678-1234-...</code></span>
+        <br>
+        <span>2. Add a Bearer authorization header to your requests, for example:</span>
+        <pre><code>curl -H "Authorization: Bearer 2:12345678-1234-..." -d '...' https://argon.globed.dev/v2/token/validate</code></pre>
+        <span>3. Done!</span>
     </div>
     {% endif %}
 </article>
