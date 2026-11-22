@@ -72,8 +72,9 @@ pub async fn create_developer(
 
     let temp_password = generate_password();
     let flash = match dev_manager.create_developer(&data.username, &temp_password).await {
-        Ok(other) => Flash::success(format!(
-            "Created developer {}, temporary password: {}",
+        // create_developer validates allowed chars so no html injection can happen here
+        Ok(other) => Flash::success_html(format!(
+            "Created developer {}, temporary password: <code>{}</code>",
             other.username, temp_password
         )),
         Err(e) => flash_from_dev_error(e)?,
@@ -119,7 +120,9 @@ pub async fn reset_developer_password(
     let temp_password = generate_password();
 
     let flash = match dev_manager.set_developer_password(id, &temp_password, true).await {
-        Ok(()) => Flash::success(format!("Reset successful, new password: {temp_password}")),
+        Ok(()) => {
+            Flash::success_html(format!("Reset successful, new password: <code>{temp_password}</code>"))
+        }
         Err(e) => flash_from_dev_error(e)?,
     };
 

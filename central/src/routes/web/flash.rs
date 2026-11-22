@@ -8,6 +8,7 @@ use super::session::SessionError;
 pub struct Flash {
     pub kind: FlashKind,
     pub message: String,
+    pub is_html: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -22,6 +23,16 @@ impl Flash {
         Self {
             kind: FlashKind::Success,
             message: message.into(),
+            is_html: false,
+        }
+    }
+
+    /// Creates a flash message with HTML content. It is up to you to ensure the string is safe and contains no unwanted XSS or such.
+    pub fn success_html(message: impl Into<String>) -> Self {
+        Self {
+            kind: FlashKind::Success,
+            message: message.into(),
+            is_html: true,
         }
     }
 
@@ -29,6 +40,7 @@ impl Flash {
         Self {
             kind: FlashKind::Error,
             message: message.into(),
+            is_html: false,
         }
     }
 }

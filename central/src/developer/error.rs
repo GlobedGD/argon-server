@@ -37,6 +37,8 @@ pub enum DevError {
     PwHashFailed,
     #[error("username must be between {} and {} characters", USERNAME_LENGTH_RANGE.start(), USERNAME_LENGTH_RANGE.end())]
     UsernameLength,
+    #[error("username contains invalid characters, only alphanumeric, underscore and dash are allowed")]
+    UsernameInvalidChars,
     #[error("password must be between {} and {} characters", PASSWORD_LENGTH_RANGE.start(), PASSWORD_LENGTH_RANGE.end())]
     PasswordLength,
     #[error("username is already taken")]

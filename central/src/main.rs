@@ -108,9 +108,10 @@ async fn log_middleware(mut req: Request, next: Next) -> Response {
             return e.into_response();
         }
     };
-
     let addr = info.0;
 
-    debug!(method = %req.method(), path = %req.uri().path(), addr = %addr, "incoming request");
+    let user_agent = req.headers().get("User-Agent").and_then(|v| v.to_str().ok()).unwrap_or("<unknown>");
+    debug!(method = %req.method(), path = %req.uri().path(), addr = %addr, user_agent = %user_agent, "incoming request");
+
     next.run(req).await
 }

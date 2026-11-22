@@ -46,6 +46,7 @@ pub enum DevScope {
 }
 
 pub const DEFAULT_SCOPES: &[DevScope] = &[DevScope::TokenValidation];
+const USERNAME_ALLOWED_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
 
 pub struct DevScopeChoice {
     pub id: &'static str,
@@ -266,6 +267,10 @@ impl DeveloperManager {
     pub async fn create_developer(&self, username: &str, password: &str) -> Result<Developer, DevError> {
         if username.len() < 3 || username.len() > 64 {
             return Err(DevError::UsernameLength);
+        }
+
+        if !username.chars().all(|c| USERNAME_ALLOWED_CHARS.contains(c)) {
+            return Err(DevError::UsernameInvalidChars);
         }
 
         if self.account_repo.get_by_username(username).await?.is_some() {

@@ -165,7 +165,7 @@ pub async fn rotate_key(
 
     let new_secret = generate_secret();
     let flash = match dev_manager.rotate_key(dev_id, key_id, &new_secret).await {
-        Ok(key) => Flash::success(format!("Key rotated: \"{key}\"")),
+        Ok(key) => Flash::success_html(format!("Key rotated: <code>{key}</code>")),
         Err(e) => flash_from_dev_error(e)?,
     };
 

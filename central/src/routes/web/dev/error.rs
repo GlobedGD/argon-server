@@ -41,9 +41,10 @@ impl From<DevError> for WebError {
             DevError::Database(e) | DevError::Login(LoginError::DatabaseError(e)) => Self::Database(e),
             DevError::Login(LoginError::InvalidCredentials) => Self::InvalidCredentials,
             DevError::NotFound => Self::NotFound,
-            DevError::UsernameLength | DevError::PasswordLength | DevError::UsernameTaken => {
-                Self::BadRequest(e.to_string())
-            }
+            DevError::UsernameLength
+            | DevError::PasswordLength
+            | DevError::UsernameTaken
+            | DevError::UsernameInvalidChars => Self::BadRequest(e.to_string()),
             DevError::PwHashFailed => Self::Internal(anyhow::Error::new(e)),
         }
     }
@@ -65,6 +66,7 @@ pub fn flash_from_dev_error(e: DevError) -> Result<Flash, WebError> {
         DevError::UsernameLength
         | DevError::PasswordLength
         | DevError::UsernameTaken
+        | DevError::UsernameInvalidChars
         | DevError::Login(LoginError::InvalidCredentials)
         | DevError::NotFound => Ok(Flash::error(e.to_string())),
         DevError::PwHashFailed | DevError::Database(_) | DevError::Login(_) => Err(e.into()),
