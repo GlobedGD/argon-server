@@ -15,6 +15,7 @@ pub use html::Html;
 pub fn router(state: &AppState, config: &AppConfig) -> Router<AppState> {
     Router::new()
         .nest_service("/assets", ServeDir::new(&config.web.assets_dir))
+        .route("/favicon.ico", get(|| async { Redirect::permanent("/assets/favicon.ico") }))
         .nest("/dev", dev::router(state, config))
         .route("/dev/", get(async || Redirect::permanent("/dev")))
         .merge(user::router(state, config))
