@@ -1,0 +1,56 @@
+{% extends "dev/layout.html" %}
+{% block title %}{{ user.username() }}{% endblock %}
+{% block content %}
+
+{% include "widgets/flash.html" %}
+
+<nav aria-label="breadcrumb">
+    <ul>
+        <li>Users</li>
+        <li>{{ user.username() }}</li>
+    </ul>
+</nav>
+
+<header class="page-header">
+    <h1>{{ user.username() }}</h1>
+    <p>
+        <small>
+            ID {{ user.account_id }}
+            {% if user.advanced_auth %}<mark>Advanced Auth</mark>{% endif %}
+        </small>
+    </p>
+</header>
+
+<article>
+    <header>
+        <strong>Discord</strong>
+    </header>
+
+    {% if !discord_enabled %}
+    <p>Discord integration is disabled on this server.</p>
+    {% else %}
+    {% if let Some(discord) = discord_user %}
+    <div class="discord-profile">
+        <img class="avatar" src="{{ discord.avatar_url }}" alt="Discord avatar" width="64" height="64">
+        <div class="discord-details">
+            <p><strong>{{ discord.username }}</strong>
+            </p>
+            <p><small>Discord ID: {{ discord.id }}</small></p>
+            <p><small>Last synced: {{ discord.last_sync }} UTC</small></p>
+        </div>
+    </div>
+
+    <div class="row-actions">
+        <form method="POST" action="/dev/admin/users/{{ user.account_id }}/discord/unlink"
+            data-confirm="Unlink user's Discord account?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="danger outline" type="submit">Unlink</button>
+        </form>
+    </div>
+    {% else %}
+    <p>Not linked to a Discord account.</p>
+    {% endif %}
+    {% endif %}
+</article>
+
+{% endblock %}

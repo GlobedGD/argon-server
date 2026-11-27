@@ -23,6 +23,14 @@ impl UserRepository {
         User::find_by_id(account_id as i64).one(&self.db).await
     }
 
+    pub async fn get_user_by_name_exact(&self, username: &str) -> Result<Option<user::Model>> {
+        User::find().filter(user::Column::Username.eq(username)).one(&self.db).await
+    }
+
+    pub async fn get_user_by_name_match(&self, username: &str) -> Result<Option<user::Model>> {
+        User::find().filter(user::Column::Username.contains(username)).one(&self.db).await
+    }
+
     pub async fn update(&self, user: user::ActiveModel) -> Result<user::Model> {
         user.update(&self.db).await
     }

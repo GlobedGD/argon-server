@@ -12,7 +12,7 @@ use tower_sessions::Session;
 
 use crate::{
     db::repository::USER_SESSION_DATA_KEY,
-    discord::client::{DiscordClient, DiscordUserDataFull, OauthFlowType},
+    discord::client::{DiscordClient, DiscordView, OauthFlowType},
     routes::web::{
         Html,
         csrf::{csrf_token, verify_csrf_token},
@@ -24,26 +24,6 @@ use crate::{
     },
     user::{User, UserManager},
 };
-
-pub struct DiscordView {
-    pub id: u64,
-    pub username: String,
-    pub avatar_url: String,
-    pub last_sync: String,
-}
-
-impl From<DiscordUserDataFull> for DiscordView {
-    fn from(data: DiscordUserDataFull) -> Self {
-        Self {
-            id: data.id,
-            username: data.username.unwrap_or_else(|| "<unknown>".to_string()),
-            avatar_url: data
-                .avatar_url
-                .unwrap_or_else(|| "https://cdn.discordapp.com/embed/avatars/0.png".to_string()),
-            last_sync: data.last_sync_time.format("%Y-%m-%d %H:%M").to_string(),
-        }
-    }
-}
 
 #[derive(Template)]
 #[template(path = "account.html")]

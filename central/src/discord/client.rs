@@ -47,6 +47,13 @@ pub struct DiscordUserDataFull {
     pub last_sync_time: chrono::NaiveDateTime,
 }
 
+pub struct DiscordView {
+    pub id: u64,
+    pub username: String,
+    pub avatar_url: String,
+    pub last_sync: String,
+}
+
 impl From<discord_user::Model> for DiscordUserDataFull {
     fn from(model: discord_user::Model) -> Self {
         Self {
@@ -74,6 +81,19 @@ impl From<DiscordUserDataFull> for DiscordUserData {
             id: full.id,
             username: full.username,
             avatar_url: full.avatar_url,
+        }
+    }
+}
+
+impl From<DiscordUserDataFull> for DiscordView {
+    fn from(data: DiscordUserDataFull) -> Self {
+        Self {
+            id: data.id,
+            username: data.username.unwrap_or_else(|| "<unknown>".to_string()),
+            avatar_url: data
+                .avatar_url
+                .unwrap_or_else(|| "https://cdn.discordapp.com/embed/avatars/0.png".to_string()),
+            last_sync: data.last_sync_time.format("%Y-%m-%d %H:%M").to_string(),
         }
     }
 }

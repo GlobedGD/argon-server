@@ -2,7 +2,7 @@
 {% block title %}Admin Dashboard{% endblock %}
 {% block content %}
 
-{% include "_flash.html" %}
+{% include "widgets/flash.html" %}
 
 <header class="page-header">
     <h1>Developers</h1>
@@ -70,6 +70,23 @@
             </tbody>
         </table>
     </div>
+</article>
+
+<article>
+    <header><strong>User management</strong></header>
+
+    <p>Lookup user</p>
+
+    <form method="GET" action="/dev/admin/users/search">
+        <div class="grid">
+            <label>
+                <input type="text" id="query" name="query" placeholder="Username, ID" minlength="1" maxlength="64"
+                    autocomplete="off" required>
+            </label>
+
+            <button type="submit">Search</button>
+        </div>
+    </form>
 </article>
 
 {% endblock %}

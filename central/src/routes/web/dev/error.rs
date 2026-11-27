@@ -9,6 +9,7 @@ use tracing::{debug, error};
 use crate::{
     developer::{DevError, LoginError},
     routes::web::{Html, flash::Flash, session::SessionError},
+    user::UserManagerError,
 };
 
 #[derive(Debug, Error)]
@@ -55,6 +56,19 @@ impl From<SessionError> for WebError {
         match e {
             SessionError::Session(e) => Self::Session(e),
             SessionError::Csrf => Self::Csrf,
+        }
+    }
+}
+
+impl From<UserManagerError> for WebError {
+    fn from(value: UserManagerError) -> Self {
+        match value {
+            UserManagerError::UserNotFound => WebError::NotFound,
+            UserManagerError::Database(e) => WebError::Database(e),
+            UserManagerError::Discord(e) => WebError::Internal(anyhow::anyhow!("Discord error: {e}")),
+            UserManagerError::AdvancedAuthNotEnabled => {
+                WebError::BadRequest("Advanced auth is not enabled".to_owned())
+            }
         }
     }
 }

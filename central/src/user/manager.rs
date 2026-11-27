@@ -305,6 +305,29 @@ impl UserManager {
         Ok(())
     }
 
+    pub async fn find_user(&self, query: &str) -> Result<Option<User>> {
+        if let Ok(id) = query.parse::<i32>()
+            && let Some(user) = self.user_repository.get_user(id).await?
+        {
+            return Ok(Some(user.into()));
+        }
+
+        if let Some(user) = self.user_repository.get_user_by_name_exact(query).await? {
+            return Ok(Some(user.into()));
+        }
+
+        if let Some(user) = self.user_repository.get_user_by_name_match(query).await? {
+            return Ok(Some(user.into()));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn get_user(&self, account_id: i32) -> Result<Option<User>> {
+        let user = self.user_repository.get_user(account_id).await?;
+        Ok(user.map(Into::into))
+    }
+
     //
 
     pub async fn get_discord_data(&self, account_id: i32) -> Result<Option<DiscordUserData>> {
@@ -405,7 +428,7 @@ impl UserManager {
         Ok(())
     }
 
-    fn discord_enabled(&self) -> bool {
+    pub fn discord_enabled(&self) -> bool {
         self.discord_client.is_some()
     }
 }

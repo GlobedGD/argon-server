@@ -3,7 +3,7 @@ use std::sync::Arc;
 use askama::Template;
 use axum::{
     Form, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::Redirect,
     routing::{get, post},
 };
@@ -16,12 +16,14 @@ use super::{
 };
 use crate::{
     developer::{DEFAULT_SCOPES, DevApiKey, DevScope, DevScopeChoice, Developer, DeveloperManager},
+    discord::client::DiscordView,
     routes::web::{
         Html,
         csrf::{csrf_token, verify_csrf_token},
         flash::{Flash, redirect_with_flash, take_flash},
     },
     state::AppState,
+    user::{User, UserManager},
 };
 
 pub mod keys;
@@ -33,6 +35,9 @@ pub fn router() -> Router<AppState> {
         .route("/developers/{id}", get(get_developer))
         .route("/developers/{id}/reset", post(reset_developer_password))
         .route("/developers/{id}/delete", post(delete_developer))
+        .route("/users/search", get(search_users))
+        .route("/users/{id}", get(get_user))
+        .route("/users/{id}/discord/unlink", post(unlink_user_discord))
         .merge(keys::router())
 }
 
@@ -161,4 +166,86 @@ pub async fn get_developer(
 
 fn generate_password() -> String {
     rand::rng().sample_iter(&Alphanumeric).take(16).map(char::from).collect::<String>()
+}
+
+#[derive(Deserialize)]
+pub struct SearchUsersData {
+    query: String,
+}
+
+pub async fn search_users(
+    AdminSession { session, .. }: AdminSession,
+    State(user_manager): State<Arc<UserManager>>,
+    Query(data): Query<SearchUsersData>,
+) -> WebResult<Redirect> {
+    match user_manager.find_user(&data.query).await? {
+        Some(user) => Ok(Redirect::to(&format!("/dev/admin/users/{}", user.account_id))),
+        None => redirect_with_flash(&session, "/dev/admin", Flash::error("User not found")).await,
+    }
+}
+
+#[derive(Template)]
+#[template(path = "dev/admin/user.html")]
+pub struct AdminUserPageTemplate {
+    me: Developer,
+    csrf_token: String,
+
+    user: User,
+    discord_enabled: bool,
+    discord_user: Option<DiscordView>,
+    flash: Option<Flash>,
+}
+
+pub async fn get_user(
+    AdminSession {
+        session,
+        dev: me,
+    }: AdminSession,
+    State(user_manager): State<Arc<UserManager>>,
+    Path(id): Path<i32>,
+) -> WebResult<Html<AdminUserPageTemplate>> {
+    let Some(user) = user_manager.get_user(id).await? else {
+        return Err(WebError::NotFound);
+    };
+
+    let discord_enabled = user_manager.discord_enabled();
+    let discord_user = user_manager.get_discord_data_ext(user.account_id).await?;
+
+    Ok(Html(AdminUserPageTemplate {
+        me,
+        user,
+        discord_enabled,
+        discord_user: discord_user.map(Into::into),
+        csrf_token: csrf_token(&session).await?,
+        flash: take_flash(&session).await?,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct UnlinkUserDiscordData {
+    csrf_token: String,
+}
+
+pub async fn unlink_user_discord(
+    AdminSession { session, .. }: AdminSession,
+    State(user_manager): State<Arc<UserManager>>,
+    Path(id): Path<i32>,
+    Form(data): Form<UnlinkUserDiscordData>,
+) -> WebResult<Redirect> {
+    verify_csrf_token(&session, &data.csrf_token).await?;
+
+    let Some(user) = user_manager.get_user(id).await? else {
+        return Err(WebError::NotFound);
+    };
+
+    if !user_manager.unlink_discord_user(user.account_id).await? {
+        return Err(WebError::BadRequest("User does not have a linked Discord account".to_owned()));
+    }
+
+    redirect_with_flash(
+        &session,
+        &format!("/dev/admin/users/{}", id),
+        Flash::success("Discord account unlinked"),
+    )
+    .await
 }
