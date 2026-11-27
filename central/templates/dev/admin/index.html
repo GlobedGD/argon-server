@@ -87,6 +87,17 @@
             <button type="submit">Search</button>
         </div>
     </form>
+
+    <form method="GET" action="/dev/admin/users/search">
+        <div class="grid">
+            <label>
+                <input type="number" id="query" name="query_discord" placeholder="Discord ID" minlength="1"
+                    maxlength="64" autocomplete="off" required>
+            </label>
+
+            <button type="submit">Search</button>
+        </div>
+    </form>
 </article>
 
 {% endblock %}

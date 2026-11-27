@@ -170,7 +170,8 @@ fn generate_password() -> String {
 
 #[derive(Deserialize)]
 pub struct SearchUsersData {
-    query: String,
+    query: Option<String>,
+    query_discord: Option<i64>,
 }
 
 pub async fn search_users(
@@ -178,7 +179,15 @@ pub async fn search_users(
     State(user_manager): State<Arc<UserManager>>,
     Query(data): Query<SearchUsersData>,
 ) -> WebResult<Redirect> {
-    match user_manager.find_user(&data.query).await? {
+    let user = if let Some(q) = &data.query {
+        user_manager.find_user(q).await?
+    } else if let Some(q) = &data.query_discord {
+        user_manager.get_user_by_discord_id(*q).await?
+    } else {
+        return Err(WebError::BadRequest("Missing query parameter".to_owned()));
+    };
+
+    match user {
         Some(user) => Ok(Redirect::to(&format!("/dev/admin/users/{}", user.account_id))),
         None => redirect_with_flash(&session, "/dev/admin", Flash::error("User not found")).await,
     }

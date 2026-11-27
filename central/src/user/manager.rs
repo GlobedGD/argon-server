@@ -323,6 +323,18 @@ impl UserManager {
         Ok(None)
     }
 
+    pub async fn get_user_by_discord_id(&self, discord_id: i64) -> Result<Option<User>> {
+        if !self.discord_enabled() {
+            return Ok(None);
+        }
+
+        let Some(user) = self.user_repository.get_user_by_discord_id(discord_id).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(user.into()))
+    }
+
     pub async fn get_user(&self, account_id: i32) -> Result<Option<User>> {
         let user = self.user_repository.get_user(account_id).await?;
         Ok(user.map(Into::into))

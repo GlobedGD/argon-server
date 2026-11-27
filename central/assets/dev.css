@@ -145,6 +145,25 @@ button.danger {
     background: transparent;
 }
 
+.discord-profile {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.discord-profile .avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.discord-details p {
+    margin: 0;
+}
+
 @media (max-width: 48rem) {
     .hide-sm {
         display: none;
